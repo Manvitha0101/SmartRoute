@@ -1,0 +1,39 @@
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ─── Environment variables ────────────────────────────────────────────────────
+# NEVER commit real secrets
+.env
+# DO commit the template
+!.env.example
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
+dist/
+build/
+*.js.map
+
+# ─── Prisma generated client ──────────────────────────────────────────────────
+# Generated at deploy time — no need to track in git
+backend/src/generated/
+# Old generated path from v7 setup
+backend/src/generated/prisma/
+
+# ─── OS & editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ─── ML model artifacts (large binary — store in cloud storage in prod) ───────
+eta-service/app/ml/model.pkl
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+# Keep docker-compose.yml tracked — needed for local dev setup

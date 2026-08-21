@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: smartroute-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: smartroute
+      POSTGRES_PASSWORD: smartroute123
+      POSTGRES_DB: smartroute
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

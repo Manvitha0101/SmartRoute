@@ -1,21 +1,31 @@
-const express=require("express");
-const app=express();
+const express = require("express");
+const prisma = require("./prismaClient");
+
+const app = express();
+
 app.use(express.json());
-const PORT=3000;
-app.get("/deliveries",(req,res)=>{
-    res.json([
-        { 
-            id:1,
-            name:"manvitha",
-            status:pending,
-        },
-        {
-            id:2,
-           name:"varun",
-            status:"pending",
-        }
-    ]);
+
+const PORT = 3000;
+
+app.post("/deliveries", async (req, res) => {
+    try {
+        const delivery = await prisma.delivery.create({
+            data: {
+                customerName: req.body.customerName,
+                address: req.body.address,
+                latitude: req.body.latitude,
+                longitude: req.body.longitude
+            }
+        });
+
+        res.status(201).json(delivery);
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Failed to create delivery"
+        });
+    }
 });
-app.listen(PORT,()=>{
-    console.log(`server is running on http://localhost:${PORT}`);
-});
+

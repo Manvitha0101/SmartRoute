@@ -1,0 +1,258 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  DISPATCHER
+}
+
+enum VehicleType {
+  MOTORCYCLE
+  CAR
+  VAN
+  TRUCK
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  ELECTRIC
+  CNG
+}
+
+enum OrderPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum OrderStatus {
+  PENDING
+  ASSIGNED
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum TimeWindowStatus {
+  NONE
+  AT_RISK
+  VIOLATED
+}
+
+enum RouteStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RouteStopStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum ViolationType {
+  PROJECTED
+  ACTUAL
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(DISPATCHER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  refreshTokens RefreshToken[]
+  driver        Driver?
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model Warehouse {
+  id        String    @id @default(uuid())
+  name      String
+  address   String
+  latitude  Float
+  longitude Float
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  orders Order[]
+  routes Route[]
+
+  @@map("warehouses")
+}
+
+model Vehicle {
+  id          String      @id @default(uuid())
+  plateNumber String      @unique
+  type        VehicleType
+  capacityKg  Float
+  fuelType    FuelType
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  drivers Driver[]
+  routes  Route[]
+
+  @@map("vehicles")
+}
+
+model Driver {
+  id            String    @id @default(uuid())
+  name          String
+  phone         String    @unique
+  licenseNumber String    @unique
+  vehicleId     String?
+  userId        String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+  routes  Route[]
+
+  @@map("drivers")
+}
+
+model Order {
+  id               String           @id @default(uuid())
+  customerName     String
+  address          String
+  latitude         Float
+  longitude        Float
+  priority         OrderPriority    @default(MEDIUM)
+  earliestDelivery DateTime?
+  latestDelivery   DateTime?
+  weightKg         Float            @default(0)
+  status           OrderStatus      @default(PENDING)
+  timeWindowStatus TimeWindowStatus @default(NONE)
+  warehouseId      String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  warehouse            Warehouse             @relation(fields: [warehouseId], references: [id])
+  routeStops           RouteStop[]
+  timeWindowViolations TimeWindowViolation[]
+
+  @@index([status])
+  @@index([warehouseId])
+  @@index([priority])
+  @@map("orders")
+}
+
+model Route {
+  id                   String      @id @default(uuid())
+  driverId             String
+  vehicleId            String
+  warehouseId          String
+  status               RouteStatus @default(PLANNED)
+  totalDistanceKm      Float?
+  estimatedDurationMin Int?
+  plannedDepartureAt   DateTime?
+  actualDepartureAt    DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  driver               Driver                @relation(fields: [driverId], references: [id])
+  vehicle              Vehicle               @relation(fields: [vehicleId], references: [id])
+  warehouse            Warehouse             @relation(fields: [warehouseId], references: [id])
+  stops                RouteStop[]
+  timeWindowViolations TimeWindowViolation[]
+
+  @@index([driverId])
+  @@index([status])
+  @@map("routes")
+}
+
+model RouteStop {
+  id               String          @id @default(uuid())
+  routeId          String
+  orderId          String
+  stopSequence     Int
+  projectedArrival DateTime?
+  actualArrival    DateTime?
+  status           RouteStopStatus @default(PENDING)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  route         Route                @relation(fields: [routeId], references: [id])
+  order         Order                @relation(fields: [orderId], references: [id])
+  etaPrediction ETAPrediction?
+  violation     TimeWindowViolation?
+
+  @@unique([routeId, orderId])
+  @@unique([routeId, stopSequence])
+  @@index([routeId])
+  @@index([orderId])
+  @@map("route_stops")
+}
+
+model TimeWindowViolation {
+  id               String        @id @default(uuid())
+  orderId          String
+  routeStopId      String        @unique
+  routeId          String
+  projectedArrival DateTime?
+  actualArrival    DateTime
+  deadline         DateTime
+  violationType    ViolationType
+  createdAt        DateTime      @default(now())
+
+  order     Order     @relation(fields: [orderId], references: [id])
+  routeStop RouteStop @relation(fields: [routeStopId], references: [id])
+  route     Route     @relation(fields: [routeId], references: [id])
+
+  @@index([routeId])
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("time_window_violations")
+}
+
+model ETAPrediction {
+  id              String   @id @default(uuid())
+  routeStopId     String   @unique
+  predictedEtaMin Float
+  distanceKm      Float
+  hourOfDay       Int
+  trafficZone     String
+  modelConfidence Float?
+  createdAt       DateTime @default(now())
+
+  routeStop RouteStop @relation(fields: [routeStopId], references: [id])
+
+  @@map("eta_predictions")
+}
