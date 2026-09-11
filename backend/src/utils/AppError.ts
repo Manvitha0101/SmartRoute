@@ -44,14 +44,14 @@ AppError.unauthorized = (msg = "Unauthorized") =>
 AppError.forbidden = (msg = "Forbidden") =>
   new AppError(msg, 403, "FORBIDDEN");
 
-AppError.conflict = (msg: string) =>
-  new AppError(msg, 409, "CONFLICT");
+AppError.conflict = (msg: string, code = "CONFLICT") =>
+  new AppError(msg, 409, code);
 
-AppError.badRequest = (msg: string) =>
-  new AppError(msg, 400, "BAD_REQUEST");
+AppError.badRequest = (msg: string, code = "BAD_REQUEST") =>
+  new AppError(msg, 400, code);
 
-AppError.businessRule = (msg: string) =>
-  new AppError(msg, 409, "BUSINESS_RULE_VIOLATION");
+AppError.businessRule = (msg: string, code = "BUSINESS_RULE_VIOLATION") =>
+  new AppError(msg, 409, code);
 
 // Augment the class type to include static factory methods
 declare module "./AppError" {
@@ -60,8 +60,8 @@ declare module "./AppError" {
     function notFound(msg?: string): AppError;
     function unauthorized(msg?: string): AppError;
     function forbidden(msg?: string): AppError;
-    function conflict(msg: string): AppError;
-    function badRequest(msg: string): AppError;
-    function businessRule(msg: string): AppError;
+    function conflict(msg: string, code?: string): AppError;
+    function badRequest(msg: string, code?: string): AppError;
+    function businessRule(msg: string, code?: string): AppError;
   }
 }

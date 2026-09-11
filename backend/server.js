@@ -28,4 +28,12 @@ app.post("/deliveries", async (req, res) => {
         });
     }
 });
+app.get("/health", (req, res) => {
+    res.json({
+        status: "ok"
+    });
+});
 
+app.listen(PORT, () => {
+    console.log(`SmartRoute API running on http://localhost:${PORT}`);
+});
