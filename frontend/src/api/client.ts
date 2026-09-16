@@ -2,7 +2,8 @@
  * api/client.ts — Central API client for all backend calls.
  */
 
-const BASE = '/api/v1';
+const API_HOST = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const BASE = `${API_HOST}/api/v1`;
 
 const getToken = () => localStorage.getItem('accessToken');
 
