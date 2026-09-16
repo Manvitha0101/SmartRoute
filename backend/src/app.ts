@@ -24,6 +24,7 @@ import warehouseRoutes from "./modules/warehouse/warehouse.routes";
 import vehicleRoutes from "./modules/vehicle/vehicle.routes";
 import driverRoutes from "./modules/driver/driver.routes";
 import orderRoutes from "./modules/order/order.routes";
+import routeRoutes from "./modules/route/route.routes";
 
 // Middleware
 import { errorHandler } from "./middleware/errorHandler";
@@ -67,8 +68,8 @@ app.use("/api/v1/warehouses", warehouseRoutes);
 app.use("/api/v1/vehicles", vehicleRoutes);
 app.use("/api/v1/drivers", driverRoutes);
 app.use("/api/v1/orders", orderRoutes);
+app.use("/api/v1/routes", routeRoutes);
 // Future features mount here:
-// app.use("/api/v1/routes", routeRoutes);
 // app.use("/api/v1/analytics", analyticsRoutes);
 
 // ─── 404 handler (unmatched routes) ───────────────────────────────────────────
