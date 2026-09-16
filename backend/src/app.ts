@@ -44,7 +44,7 @@ app.use(
   cors({
     origin: env.isProduction
       ? ["https://your-frontend-domain.com"] // Lock down in prod
-      : ["http://localhost:5173", "http://localhost:3001"], // Vite default port
+      : ["http://localhost:5173", "http://localhost:5174", "http://localhost:3001"], // Vite ports
     credentials: true, // Required for cookies to be sent cross-origin
   })
 );

@@ -1,15 +1,11 @@
 /**
  * route.routes.ts — Route definitions for the route module.
- *
- * REGISTRATION ORDER (same lesson as order.routes.ts):
- * /optimize must come before /:id — otherwise "optimize" matches as an :id param.
- * /:id/start, /:id/complete, /:id/cancel come before /:id for the same reason.
  */
 
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate";
 import { validateBody } from "../../middleware/validate";
-import { optimizeRouteSchema } from "./route.schemas";
+import { optimizeRouteSchema, updateStopStatusSchema } from "./route.schemas";
 import * as routeController from "./route.controller";
 
 const router = Router();
@@ -21,6 +17,14 @@ router.post(
   authenticate,
   validateBody(optimizeRouteSchema),
   routeController.optimizeRoutes
+);
+
+// Stop actions — before /:id
+router.patch(
+  "/:id/stops/:stopId",
+  authenticate,
+  validateBody(updateStopStatusSchema),
+  routeController.updateStopStatus
 );
 
 // Sub-actions — MUST be before /:id

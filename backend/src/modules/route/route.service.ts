@@ -1,38 +1,17 @@
 /**
  * route.service.ts — Business logic for the route module.
- *
- * This service coordinates between the repository and the optimizer.
- * The optimizer is a pure function — it doesn't know about Prisma.
- * The service feeds it data from the DB and saves its output back.
- *
- * BUSINESS RULES:
- *
- * OPTIMIZE:
- * 1. Warehouse must exist
- * 2. All vehicleIds must exist and not be deleted
- * 3. All driverIds must exist and not be deleted
- * 4. Must be at least one PENDING order for this warehouse
- * 5. No vehicle can be on an existing IN_PROGRESS route (it's already deployed)
- *
- * STATUS TRANSITIONS:
- *   PLANNED     → IN_PROGRESS (start)
- *   IN_PROGRESS → COMPLETED   (complete)
- *   PLANNED     → CANCELLED   (cancel — only before departure)
- *
- * A route can't go: COMPLETED → anything, CANCELLED → anything (terminal states)
  */
 
 import { AppError } from "../../utils/AppError";
 import * as routeRepo from "./route.repository";
 import { optimizeRoutes } from "./route.optimizer";
-import type { OptimizeRouteInput } from "./route.schemas";
+import type { OptimizeRouteInput, UpdateStopStatusInput } from "./route.schemas";
 
 // ─── Optimize ──────────────────────────────────────────────────────────────────
 
 export const optimize = async (data: OptimizeRouteInput) => {
   const { prisma } = await import("../../prisma/client");
 
-  // Rule 1: Warehouse must exist
   const warehouse = await prisma.warehouse.findFirst({
     where: { id: data.warehouseId, deletedAt: null },
     select: { id: true, latitude: true, longitude: true, name: true },
@@ -44,7 +23,6 @@ export const optimize = async (data: OptimizeRouteInput) => {
     );
   }
 
-  // Rule 2: All vehicles must exist and not be on an active route
   const vehicles = await prisma.vehicle.findMany({
     where: {
       id: { in: data.vehicleIds },
@@ -60,7 +38,6 @@ export const optimize = async (data: OptimizeRouteInput) => {
     );
   }
 
-  // Rule: Check no vehicle is already on an active route
   const activeRouteVehicle = await prisma.route.findFirst({
     where: {
       vehicleId: { in: data.vehicleIds },
@@ -75,7 +52,6 @@ export const optimize = async (data: OptimizeRouteInput) => {
     );
   }
 
-  // Rule 3: All drivers must exist
   const drivers = await prisma.driver.findMany({
     where: {
       id: { in: data.driverIds },
@@ -91,7 +67,6 @@ export const optimize = async (data: OptimizeRouteInput) => {
     );
   }
 
-  // Rule 4: Must have pending orders
   const pendingOrders = await prisma.order.findMany({
     where: {
       warehouseId: data.warehouseId,
@@ -116,22 +91,18 @@ export const optimize = async (data: OptimizeRouteInput) => {
     );
   }
 
-  // Build vehicle+driver pairs for the optimizer
-  // vehicleIds[0] pairs with driverIds[0], etc.
   const vehiclesForOptimizer = vehicles.map((v, index) => ({
     id: v.id,
     driverId: data.driverIds[index],
     capacityKg: v.capacityKg,
   }));
 
-  // ── Run the optimizer ──────────────────────────────────────────────────────
   const result = optimizeRoutes(
     pendingOrders as any,
     vehiclesForOptimizer,
     { latitude: warehouse.latitude, longitude: warehouse.longitude }
   );
 
-  // ── Save results to DB ─────────────────────────────────────────────────────
   if (result.routes.length === 0) {
     throw AppError.badRequest(
       "Optimization produced no routes — orders may be too heavy for available vehicles",
@@ -149,7 +120,6 @@ export const optimize = async (data: OptimizeRouteInput) => {
     routes: createdRoutes,
     unassignedOrderCount: result.unassignedOrderIds.length,
     unassignedOrderIds: result.unassignedOrderIds,
-    // Surface a warning if some orders couldn't be assigned
     warning:
       result.unassignedOrderIds.length > 0
         ? `${result.unassignedOrderIds.length} order(s) could not be assigned — vehicles may be at full capacity. Add more vehicles or increase capacity.`
@@ -173,10 +143,6 @@ export const getRouteById = async (id: string) => {
 
 // ─── Status transitions ────────────────────────────────────────────────────────
 
-/**
- * Start a route (PLANNED → IN_PROGRESS).
- * Records the actual departure time.
- */
 export const startRoute = async (id: string) => {
   const route = await getRouteById(id);
 
@@ -192,10 +158,6 @@ export const startRoute = async (id: string) => {
   });
 };
 
-/**
- * Complete a route (IN_PROGRESS → COMPLETED).
- * Records the completion time.
- */
 export const completeRoute = async (id: string) => {
   const route = await getRouteById(id);
 
@@ -211,16 +173,6 @@ export const completeRoute = async (id: string) => {
   });
 };
 
-/**
- * Cancel a route (PLANNED → CANCELLED).
- * When cancelled, all ASSIGNED orders in this route revert to PENDING
- * so they can be picked up in the next optimization run.
- *
- * WHY REVERT ORDERS TO PENDING:
- * If a route is cancelled before departure, the orders are stranded.
- * They'd stay ASSIGNED forever, invisible to the next optimization run
- * (which only picks PENDING orders). Reverting them makes them available again.
- */
 export const cancelRoute = async (id: string) => {
   const route = await getRouteById(id);
 
@@ -233,16 +185,13 @@ export const cancelRoute = async (id: string) => {
 
   const { prisma } = await import("../../prisma/client");
 
-  // Revert all orders in this route back to PENDING
   const orderIds = route.stops.map((s) => s.orderId);
 
   await prisma.$transaction([
-    // Cancel the route
     prisma.route.update({
       where: { id },
       data: { status: "CANCELLED" },
     }),
-    // Revert orders to PENDING so they're available for the next run
     prisma.order.updateMany({
       where: { id: { in: orderIds } },
       data: { status: "PENDING" },
@@ -250,4 +199,19 @@ export const cancelRoute = async (id: string) => {
   ]);
 
   return { message: `Route cancelled. ${orderIds.length} order(s) reverted to PENDING.` };
+};
+
+export const updateStopStatus = async (
+  routeId: string,
+  stopId: string,
+  data: UpdateStopStatusInput
+) => {
+  const route = await getRouteById(routeId);
+  const stop = route.stops.find((s) => s.id === stopId);
+  if (!stop) {
+    throw AppError.notFound("Stop not found on this route", "STOP_NOT_FOUND");
+  }
+
+  const arrivalDate = data.actualArrival ? new Date(data.actualArrival) : undefined;
+  return routeRepo.updateRouteStopStatus(stopId, data.status as any, arrivalDate);
 };

@@ -1,19 +1,9 @@
 /**
  * route.repository.ts — All DB operations for the route module.
- *
- * KEY DIFFERENCE from previous repositories:
- * Routes are complex — they JOIN to RouteStops, which JOIN to Orders.
- * The `include` clause in Prisma fetches related records in one query
- * (a SQL JOIN under the hood), avoiding N+1 queries.
- *
- * N+1 PROBLEM (what we're avoiding):
- * Bad: fetch 10 routes → for each route, fetch its stops → 11 DB queries
- * Good: fetch 10 routes WITH stops in one query → 1 DB query
- * `include: { stops: true }` does the JOIN for us.
  */
 
 import { prisma } from "../../prisma/client";
-import { RouteStatus } from "@prisma/client";
+import { RouteStatus, RouteStopStatus } from "@prisma/client";
 import type { OptimizedRoute } from "./route.optimizer";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -31,9 +21,13 @@ export type RouteRecord = {
   completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  driver: { name: string; phone: string };
+  vehicle: { plateNumber: string; capacityKg: number; type: string };
+  _count: { stops: number };
 };
 
 export type RouteWithStops = RouteRecord & {
+  warehouse: { name: string; latitude: number; longitude: number };
   stops: {
     id: string;
     orderId: string;
@@ -41,38 +35,26 @@ export type RouteWithStops = RouteRecord & {
     projectedArrival: Date | null;
     actualArrival: Date | null;
     status: string;
+    order: {
+      customerName: string;
+      address: string;
+      weightKg: number;
+      priority: string;
+      latestDelivery: Date | null;
+      latitude: number;
+      longitude: number;
+    };
   }[];
 };
 
-// ─── Batch route creation (called by optimizer service) ───────────────────────
-
-/**
- * Create all routes and their stops in a single Prisma transaction.
- *
- * WHY TRANSACTION:
- * Creating 3 routes with 10 stops each = 13 DB writes.
- * If stop #7 fails (e.g. constraint violation), without a transaction
- * we'd have partial data: 3 routes created but only 6 stops.
- * The route would reference orders that were never properly assigned.
- *
- * prisma.$transaction([...]) wraps all operations in one atomic unit:
- * ALL succeed, or ALL roll back. No partial state.
- *
- * WHY NOT prisma.$transaction(async (tx) => {...}):
- * That's the interactive transaction style — needed when later operations
- * depend on the result of earlier ones (e.g. you need the created route ID
- * to create its stops). We do need that here, so we use the callback style.
- */
 export const createRoutesWithStops = async (
   optimizedRoutes: OptimizedRoute[],
   warehouseId: string
 ): Promise<RouteRecord[]> => {
-  // Use interactive transaction — we need the route ID to create its stops
   const createdRoutes = await prisma.$transaction(async (tx) => {
     const results: RouteRecord[] = [];
 
     for (const optimized of optimizedRoutes) {
-      // Step 1: Create the Route record
       const route = await tx.route.create({
         data: {
           driverId: optimized.driverId,
@@ -80,7 +62,6 @@ export const createRoutesWithStops = async (
           warehouseId,
           status: "PLANNED",
           totalDistanceKm: optimized.totalDistanceKm,
-          // Estimate duration: distance ÷ 30 km/h → hours → minutes
           estimatedDurationMin: Math.round((optimized.totalDistanceKm / 30) * 60),
         },
         select: {
@@ -96,10 +77,12 @@ export const createRoutesWithStops = async (
           completedAt: true,
           createdAt: true,
           updatedAt: true,
+          driver: { select: { name: true, phone: true } },
+          vehicle: { select: { plateNumber: true, capacityKg: true, type: true } },
+          _count: { select: { stops: true } },
         },
       });
 
-      // Step 2: Create RouteStop records for this route
       await tx.routeStop.createMany({
         data: optimized.stops.map((stop) => ({
           routeId: route.id,
@@ -110,7 +93,6 @@ export const createRoutesWithStops = async (
         })),
       });
 
-      // Step 3: Mark all assigned orders as ASSIGNED
       await tx.order.updateMany({
         where: { id: { in: optimized.stops.map((s) => s.orderId) } },
         data: { status: "ASSIGNED" },
@@ -124,8 +106,6 @@ export const createRoutesWithStops = async (
 
   return createdRoutes;
 };
-
-// ─── Read operations ───────────────────────────────────────────────────────────
 
 export const findAllRoutes = async (): Promise<RouteRecord[]> => {
   return prisma.route.findMany({
@@ -142,6 +122,9 @@ export const findAllRoutes = async (): Promise<RouteRecord[]> => {
       completedAt: true,
       createdAt: true,
       updatedAt: true,
+      driver: { select: { name: true, phone: true } },
+      vehicle: { select: { plateNumber: true, capacityKg: true, type: true } },
+      _count: { select: { stops: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -165,7 +148,10 @@ export const findRouteById = async (
       completedAt: true,
       createdAt: true,
       updatedAt: true,
-      // JOIN: include all stops for this route, ordered by sequence
+      driver: { select: { name: true, phone: true } },
+      vehicle: { select: { plateNumber: true, capacityKg: true, type: true } },
+      _count: { select: { stops: true } },
+      warehouse: { select: { name: true, latitude: true, longitude: true } },
       stops: {
         select: {
           id: true,
@@ -174,8 +160,19 @@ export const findRouteById = async (
           projectedArrival: true,
           actualArrival: true,
           status: true,
+          order: {
+            select: {
+              customerName: true,
+              address: true,
+              weightKg: true,
+              priority: true,
+              latestDelivery: true,
+              latitude: true,
+              longitude: true,
+            },
+          },
         },
-        orderBy: { stopSequence: "asc" }, // Stop 1 first, then 2, then 3...
+        orderBy: { stopSequence: "asc" },
       },
     },
   });
@@ -205,6 +202,39 @@ export const updateRouteStatus = async (
       completedAt: true,
       createdAt: true,
       updatedAt: true,
+      driver: { select: { name: true, phone: true } },
+      vehicle: { select: { plateNumber: true, capacityKg: true, type: true } },
+      _count: { select: { stops: true } },
     },
+  });
+};
+
+export const updateRouteStopStatus = async (
+  stopId: string,
+  status: RouteStopStatus,
+  actualArrival?: Date
+) => {
+  return prisma.$transaction(async (tx) => {
+    const stop = await tx.routeStop.update({
+      where: { id: stopId },
+      data: {
+        status,
+        ...(status === "COMPLETED" ? { actualArrival: actualArrival ?? new Date() } : {}),
+      },
+    });
+
+    if (status === "COMPLETED") {
+      await tx.order.update({
+        where: { id: stop.orderId },
+        data: { status: "DELIVERED" },
+      });
+    } else if (status === "FAILED") {
+      await tx.order.update({
+        where: { id: stop.orderId },
+        data: { status: "FAILED" },
+      });
+    }
+
+    return stop;
   });
 };
