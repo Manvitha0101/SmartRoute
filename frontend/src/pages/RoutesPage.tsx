@@ -79,9 +79,27 @@ export default function RoutesPage() {
             <p className="page-subtitle">{routes.length} route{routes.length !== 1 ? 's' : ''} total</p>
           </div>
           <button className="btn btn-primary" onClick={() => setShowOptimize(true)}>
-            ⚡ Run Optimization
+            ⚡ Process & Optimize Orders
           </button>
         </div>
+      </div>
+
+      <div style={{
+        background: '#f0fdf4',
+        border: '1px solid #bbf7d0',
+        borderRadius: 8,
+        padding: '10px 14px',
+        marginBottom: 16,
+        fontSize: '0.84rem',
+        color: '#166534',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}>
+        <span>ℹ️</span>
+        <span>
+          <strong>Dispatcher Workflow:</strong> Orders received from the company are automatically pooled. Click <strong>Process & Optimize Orders</strong> to run the routing algorithm and assign deliveries to available drivers and vehicles.
+        </span>
       </div>
 
       {actionError && (
@@ -93,7 +111,7 @@ export default function RoutesPage() {
       {routes.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">🗺️</div>
-          <p>No routes yet. Create some orders then run optimization.</p>
+          <p>No active routes yet. Click &quot;Process &amp; Optimize Orders&quot; to assign incoming orders to drivers.</p>
         </div>
       ) : (
         <div className="table-wrap">
@@ -213,9 +231,9 @@ function OptimizeModal({ warehouses, vehicles, drivers, onClose, onDone }: {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()}>
-        <h3 className="modal-title">⚡ Run Route Optimization</h3>
+        <h3 className="modal-title">⚡ Process & Optimize Incoming Orders</h3>
         <p style={{ fontSize: '0.875rem', color: 'var(--text-3)', marginBottom: 20 }}>
-          Select the warehouse, vehicles, and drivers for this run. The AI optimizer will assign pending orders in optimal delivery order.
+          Select the warehouse hub, available vehicles, and drivers. The routing engine will automatically cluster pending company orders and compute optimal delivery sequences.
         </p>
 
         {error   && <div className="alert alert-error">{error}</div>}

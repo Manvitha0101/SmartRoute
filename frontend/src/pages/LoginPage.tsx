@@ -21,8 +21,14 @@ export default function LoginPage() {
       const data = await api.login(email, password);
       login(data.accessToken, data.user);
     } catch (err) {
-      if (err instanceof ApiError) setError(err.message);
-      else setError('Network error — is the backend server running?');
+      if (err instanceof ApiError) {
+        // 401 = wrong credentials, other = server-side issue
+        setError(err.status === 401
+          ? 'Invalid email or password. Use the demo profiles below or check your credentials.'
+          : `Server error: ${err.message}`);
+      } else {
+        setError('Cannot reach backend — make sure the backend server is running on localhost:3000');
+      }
     } finally {
       setLoading(false);
     }
@@ -128,23 +134,29 @@ export default function LoginPage() {
         </form>
 
         <div className="login-presets">
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Quick Demo Profiles:</span>
-          <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Quick Demo Profiles:</span>
+          <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexDirection: 'column' }}>
             <button
               type="button"
               className="btn btn-outline btn-xs"
               onClick={() => { setEmail('dispatcher@smartroute.io'); setPassword('Password@123'); }}
+              title="dispatcher@smartroute.io / Password@123"
             >
-              Dispatcher
+              🚚 Dispatcher — dispatcher@smartroute.io
             </button>
             <button
               type="button"
               className="btn btn-outline btn-xs"
               onClick={() => { setEmail('admin@smartroute.io'); setPassword('Password@123'); }}
+              title="admin@smartroute.io / Password@123"
             >
-              Admin
+              ⚡ Admin — admin@smartroute.io
             </button>
           </div>
+          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.4 }}>
+            Password for all demo accounts: <code style={{ background: 'var(--bg-2)', padding: '1px 4px', borderRadius: 3 }}>Password@123</code>
+            <br />Requires local backend running on port 3000.
+          </p>
         </div>
       </div>
 

@@ -303,7 +303,82 @@ async function main() {
     const created = await prisma.order.create({ data: o });
     kkOrders.push(created);
   }
-  console.log(`✅ Seeded ${hydOrders.length + kkOrders.length} Sample Orders`);
+
+  // 6b. Fresh PENDING orders — simulate "just received from company" for dispatcher to optimize
+  // These represent new delivery requests the company sent into the system today
+  const freshIncomingOrders = [
+    {
+      customerName: "MedLife Pharmacy — Kondapur",
+      address: "Plot 18, Kondapur Main Road, Near IKEA, Hyderabad",
+      latitude: 17.4600,
+      longitude: 78.3520,
+      priority: OrderPriority.HIGH,
+      weightKg: 12.5,
+      earliestDelivery: plusHours(0),
+      latestDelivery: plusHours(3),
+      status: OrderStatus.PENDING,
+      timeWindowStatus: TimeWindowStatus.AT_RISK,
+      warehouseId: hydWarehouse.id,
+    },
+    {
+      customerName: "Sai Electronics — Ameerpet",
+      address: "6-3-349, Ameerpet Metro Station Road, Hyderabad",
+      latitude: 17.4375,
+      longitude: 78.4483,
+      priority: OrderPriority.MEDIUM,
+      weightKg: 32.0,
+      earliestDelivery: plusHours(1),
+      latestDelivery: plusHours(6),
+      status: OrderStatus.PENDING,
+      timeWindowStatus: TimeWindowStatus.NONE,
+      warehouseId: hydWarehouse.id,
+    },
+    {
+      customerName: "Krishna Sweets — Banjara Hills",
+      address: "Road No 12, Banjara Hills, Hyderabad",
+      latitude: 17.4239,
+      longitude: 78.4388,
+      priority: OrderPriority.LOW,
+      weightKg: 18.0,
+      earliestDelivery: plusHours(2),
+      latestDelivery: plusHours(8),
+      status: OrderStatus.PENDING,
+      timeWindowStatus: TimeWindowStatus.NONE,
+      warehouseId: hydWarehouse.id,
+    },
+    {
+      customerName: "Coastal Fish Traders — Kakinada Port",
+      address: "Fish Auction Hall, Harbour Road, Kakinada",
+      latitude: 16.9745,
+      longitude: 82.2612,
+      priority: OrderPriority.HIGH,
+      weightKg: 75.0,
+      earliestDelivery: plusHours(0),
+      latestDelivery: plusHours(4),
+      status: OrderStatus.PENDING,
+      timeWindowStatus: TimeWindowStatus.NONE,
+      warehouseId: kkWarehouse.id,
+    },
+    {
+      customerName: "Rajiv Gandhi Medical College",
+      address: "NH-16 Bypass Road, Undi, Near Kakinada",
+      latitude: 16.9123,
+      longitude: 82.2145,
+      priority: OrderPriority.HIGH,
+      weightKg: 9.5,
+      earliestDelivery: plusHours(1),
+      latestDelivery: plusHours(3),
+      status: OrderStatus.PENDING,
+      timeWindowStatus: TimeWindowStatus.NONE,
+      warehouseId: kkWarehouse.id,
+    },
+  ];
+
+  for (const o of freshIncomingOrders) {
+    await prisma.order.create({ data: o });
+  }
+
+  console.log(`✅ Seeded ${hydOrders.length + kkOrders.length} historical + ${freshIncomingOrders.length} fresh PENDING orders (received from company, awaiting dispatcher optimization)`);
 
   // 7. Seed Active Route for Driver Suresh Reddy (Hyderabad)
   const sureshDriver = drivers[0];

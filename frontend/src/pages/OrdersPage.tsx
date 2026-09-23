@@ -18,7 +18,6 @@ export default function OrdersPage() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterPriority, setFilterPriority] = useState('');
   const [filterWarehouse, setFilterWarehouse] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const fetchOrders = async () => {
@@ -63,15 +62,30 @@ export default function OrdersPage() {
   return (
     <div className="page-enter">
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h2 className="page-title">Orders</h2>
-            <p className="page-subtitle">{orders.length} order{orders.length !== 1 ? 's' : ''} shown</p>
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Order
-          </button>
+        <div>
+          <h2 className="page-title">Incoming Orders</h2>
+          <p className="page-subtitle">{orders.length} order{orders.length !== 1 ? 's' : ''} received from company</p>
         </div>
+      </div>
+
+      {/* Dispatcher info banner */}
+      <div style={{
+        background: '#eff6ff',
+        border: '1px solid #bfdbfe',
+        borderRadius: 8,
+        padding: '10px 16px',
+        fontSize: '0.85rem',
+        color: '#1e40af',
+        marginBottom: 12,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}>
+        <span style={{ fontSize: '1.1rem' }}>ℹ️</span>
+        <span>
+          <strong>Dispatcher view:</strong> Orders are assigned by your logistics company and appear here automatically.
+          Go to <strong>Routes</strong> to run the AI optimizer and dispatch drivers to these orders.
+        </span>
       </div>
 
       {actionError && (
@@ -79,6 +93,7 @@ export default function OrdersPage() {
           {actionError} <small>(click to dismiss)</small>
         </div>
       )}
+
 
       {/* Filters */}
       <div className="filters-bar">
@@ -103,7 +118,7 @@ export default function OrdersPage() {
       </div>
 
       {orders.length === 0
-        ? <div className="empty-state"><div className="empty-state-icon">📦</div><p>No orders found</p></div>
+        ? <div className="empty-state"><div className="empty-state-icon">📦</div><p>No company orders received yet.</p><p style={{ fontSize: '0.85rem', color: 'var(--text-3)', marginTop: 4 }}>Orders assigned by your logistics company will appear here automatically.</p></div>
         : (
           <div className="table-wrap">
             <table>
@@ -156,110 +171,7 @@ export default function OrdersPage() {
         )
       }
 
-      {showCreate && (
-        <CreateOrderModal
-          warehouses={warehouses}
-          onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); fetchOrders(); }}
-        />
-      )}
     </div>
   );
 }
 
-// ── Create Order Modal ────────────────────────────────────────────────────────
-
-function CreateOrderModal({ warehouses, onClose, onCreated }: {
-  warehouses: Warehouse[];
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [form, setForm] = useState({
-    customerName: '', address: '', latitude: '', longitude: '',
-    priority: 'MEDIUM', weightKg: '0', warehouseId: warehouses[0]?.id ?? '',
-    latestDelivery: '',
-  });
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(''); setLoading(true);
-    try {
-      await api.createOrder({
-        customerName: form.customerName,
-        address: form.address,
-        latitude: parseFloat(form.latitude),
-        longitude: parseFloat(form.longitude),
-        priority: form.priority as 'HIGH' | 'MEDIUM' | 'LOW',
-        weightKg: parseFloat(form.weightKg),
-        warehouseId: form.warehouseId,
-        ...(form.latestDelivery ? { latestDelivery: form.latestDelivery } : {}),
-      });
-      onCreated();
-    } catch (e) {
-      if (e instanceof ApiError) setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <h3 className="modal-title">New Order</h3>
-        {error && <div className="alert alert-error">{error}</div>}
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group" style={{ gridColumn: '1/-1' }}>
-              <label className="form-label">Customer Name</label>
-              <input className="form-input" required value={form.customerName} onChange={e => set('customerName', e.target.value)} placeholder="e.g. Rajesh Kumar" />
-            </div>
-            <div className="form-group" style={{ gridColumn: '1/-1' }}>
-              <label className="form-label">Delivery Address</label>
-              <input className="form-input" required value={form.address} onChange={e => set('address', e.target.value)} placeholder="e.g. 12 Park Street, Bandra West" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Latitude</label>
-              <input className="form-input" type="number" step="any" required value={form.latitude} onChange={e => set('latitude', e.target.value)} placeholder="19.0596" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Longitude</label>
-              <input className="form-input" type="number" step="any" required value={form.longitude} onChange={e => set('longitude', e.target.value)} placeholder="72.8295" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Priority</label>
-              <select className="form-select" value={form.priority} onChange={e => set('priority', e.target.value)}>
-                <option value="HIGH">HIGH</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="LOW">LOW</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Weight (kg)</label>
-              <input className="form-input" type="number" min="0" step="0.1" value={form.weightKg} onChange={e => set('weightKg', e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Warehouse</label>
-              <select className="form-select" value={form.warehouseId} onChange={e => set('warehouseId', e.target.value)} required>
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Deliver by (optional)</label>
-              <input className="form-input" type="datetime-local" value={form.latestDelivery} onChange={e => set('latestDelivery', e.target.value)} />
-            </div>
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? <><span className="spinner" /> Creating…</> : 'Create Order'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
