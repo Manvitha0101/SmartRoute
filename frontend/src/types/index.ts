@@ -128,6 +128,39 @@ export interface AnalyticsSummary {
   }[];
 }
 
+export interface ActiveRouteItem {
+  id: string;
+  driverName: string;
+  driverPhone: string;
+  vehiclePlate: string;
+  vehicleType: string;
+  warehouseName: string;
+  totalStops: number;
+  totalDistanceKm: number | null;
+  estimatedDurationMin: number | null;
+  actualDepartureAt: string | null;
+}
+
+export interface PlannedRouteItem {
+  id: string;
+  driverName: string;
+  driverPhone: string;
+  vehiclePlate: string;
+  vehicleType: string;
+  warehouseName: string;
+  totalStops: number;
+  totalDistanceKm: number | null;
+  estimatedDurationMin: number | null;
+  plannedDepartureAt: string | null;
+}
+
+export interface DispatcherLive {
+  pendingOrderCount: number;
+  availableDriverCount: number;
+  activeRoutes: ActiveRouteItem[];
+  plannedRoutes: PlannedRouteItem[];
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T;

@@ -49,8 +49,21 @@ function AppShell() {
           <div className="user-chip">
             <div className="user-avatar">{initials}</div>
             <div className="user-info">
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
-                {user?.role}
+              <div style={{ marginBottom: 2 }}>
+                <span style={{
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  background: user?.role === 'ADMIN'
+                    ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
+                    : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
+                  color: '#fff',
+                }}>
+                  {user?.role ?? 'USER'}
+                </span>
               </div>
               <div className="user-email">{user?.email}</div>
             </div>

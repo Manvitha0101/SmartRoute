@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { AuthResponse, Order, Warehouse, Vehicle, Driver, Route, RouteStop, AnalyticsSummary } from '../types';
+import type { AuthResponse, Order, Warehouse, Vehicle, Driver, Route, RouteStop, AnalyticsSummary, DispatcherLive } from '../types';
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
 export const login = (email: string, password: string) =>
@@ -14,6 +14,9 @@ export const logout = (refreshToken: string) =>
 // ── Analytics ──────────────────────────────────────────────────────────────────
 export const getAnalyticsSummary = () =>
   api.get<AnalyticsSummary>('/analytics/summary');
+
+export const getDispatcherLive = () =>
+  api.get<DispatcherLive>('/analytics/dispatcher/live');
 
 // ── Warehouses ─────────────────────────────────────────────────────────────────
 export const getWarehouses = () =>
