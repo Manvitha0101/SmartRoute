@@ -1,4 +1,4 @@
-# 🚛 SmartRoute — Intelligent Delivery Route Optimization
+# 🚛 SmartRoute —  Delivery Route Optimization and Fleet Management
 
 SmartRoute is a full-stack web application that helps logistics companies **optimize delivery routes**, **manage drivers**, and **track orders** in real time.
 
