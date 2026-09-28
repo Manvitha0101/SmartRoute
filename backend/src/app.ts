@@ -58,8 +58,8 @@ app.get("/health", (_req, res) => {
 });
 
 // ─── Demo seed endpoint (protected) ──────────────────────────────────────────
-// POST /api/v1/seed?secret=<SEED_SECRET>  — populates all demo data
-app.post("/api/v1/seed", async (req, res) => {
+// GET or POST /api/v1/seed?secret=<SEED_SECRET>  — populates all demo data
+const seedHandler = async (req: any, res: any) => {
   const secret = (req.query.secret as string) || req.body?.secret;
   const expected = process.env.SEED_SECRET || "smartroute-seed-2024";
   if (secret !== expected) {
@@ -72,7 +72,9 @@ app.post("/api/v1/seed", async (req, res) => {
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e.message });
   }
-});
+};
+app.get("/api/v1/seed", seedHandler);
+app.post("/api/v1/seed", seedHandler);
 
 // ─── API routes ────────────────────────────────────────────────────────────────
 app.use("/api/v1/auth", authRoutes);
