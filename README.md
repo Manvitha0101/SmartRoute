@@ -120,14 +120,6 @@ npm run dev               # starts on http://localhost:5173
 
 ---
 
-## 🌍 Deployment
-
-| Service | URL |
-|---|---|
-| Frontend (Vercel) | [smartroute-app-v1.vercel.app](https://smartroute-app-v1.vercel.app) |
-| Backend (Render) | [smartroute-backend-f1j7.onrender.com](https://smartroute-backend-f1j7.onrender.com) |
-
----
 
 ## 🗄️ Database Schema (Key Models)
 
@@ -139,6 +131,4 @@ npm run dev               # starts on http://localhost:5173
 - **Route** — Optimized path assigned to a driver + vehicle
 - **RouteStop** — Individual delivery stop within a route
 
----
 
-*Built with ❤️ for smart logistics.*
