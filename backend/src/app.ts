@@ -17,6 +17,7 @@ import driverRoutes from "./modules/driver/driver.routes";
 import orderRoutes from "./modules/order/order.routes";
 import routeRoutes from "./modules/route/route.routes";
 import analyticsRoutes from "./modules/analytics/analytics.routes";
+import { runSeed } from "./seed-runner";
 
 // Middleware
 import { errorHandler } from "./middleware/errorHandler";
@@ -54,6 +55,23 @@ app.use(cookieParser());
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// ─── Demo seed endpoint (protected) ──────────────────────────────────────────
+// POST /api/v1/seed?secret=<SEED_SECRET>  — populates all demo data
+app.post("/api/v1/seed", async (req, res) => {
+  const secret = (req.query.secret as string) || req.body?.secret;
+  const expected = process.env.SEED_SECRET || "smartroute-seed-2024";
+  if (secret !== expected) {
+    return res.status(403).json({ success: false, error: "Forbidden — wrong secret" });
+  }
+  try {
+    const { prisma } = await import("./prisma/client");
+    const log = await runSeed(prisma);
+    return res.status(200).json({ success: true, log });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // ─── API routes ────────────────────────────────────────────────────────────────
