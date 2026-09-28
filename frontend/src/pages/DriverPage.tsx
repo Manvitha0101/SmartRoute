@@ -1,553 +1,464 @@
-import { useState, useEffect } from 'react';
-import type { Driver, Route, RouteStop } from '../types';
+import { useState, useEffect, useCallback } from 'react';
+import type { Driver, Route } from '../types';
 import * as api from '../api';
 import { ApiError } from '../api/client';
 
-export default function DriverPage() {
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [selectedDriverId, setSelectedDriverId] = useState<string>('');
-  const [activeRouteDetail, setActiveRouteDetail] = useState<Route | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'driver' | 'fleet'>('driver');
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+function fmtDuration(min: number | null) {
+  if (!min) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
-  const loadData = async (preserveDriverId?: string) => {
-    try {
-      setLoading(true);
-      const [driversData, routesData] = await Promise.all([
-        api.getDrivers(),
-        api.getRoutes(),
-      ]);
-      setDrivers(driversData);
-      setRoutes(routesData);
+function fmtTime(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
 
-      const targetId = preserveDriverId || selectedDriverId || driversData[0]?.id || '';
-      if (targetId) {
-        setSelectedDriverId(targetId);
-        await loadDriverRouteDetail(targetId, routesData);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+const STATUS_COLOR: Record<string, string> = {
+  IN_PROGRESS: '#2563eb', PLANNED: '#d97706', COMPLETED: '#16a34a', CANCELLED: '#6b7280',
+  PENDING: '#d97706', FAILED: '#dc2626', SKIPPED: '#6b7280',
+};
 
-  const loadDriverRouteDetail = async (driverId: string, currentRoutes: Route[]) => {
-    // Find active or planned route for this driver
-    const driverRoute = currentRoutes.find(
-      (r) => r.driverId === driverId && (r.status === 'IN_PROGRESS' || r.status === 'PLANNED')
-    ) || currentRoutes.find((r) => r.driverId === driverId);
+function StatusBadge({ s }: { s: string }) {
+  const col = STATUS_COLOR[s] ?? '#6b7280';
+  return (
+    <span style={{
+      fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+      background: col + '15', color: col, border: `1px solid ${col}25`,
+    }}>
+      {s.replace('_', ' ')}
+    </span>
+  );
+}
 
-    if (driverRoute) {
-      try {
-        const full = await api.getRouteById(driverRoute.id);
-        setActiveRouteDetail(full);
-      } catch {
-        setActiveRouteDetail(driverRoute);
-      }
-    } else {
-      setActiveRouteDetail(null);
-    }
-  };
+function PriorityBadge({ p }: { p: string }) {
+  const col = p === 'HIGH' ? '#dc2626' : p === 'MEDIUM' ? '#d97706' : '#6b7280';
+  return (
+    <span style={{
+      fontSize: '0.7rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999,
+      background: col + '18', color: col,
+    }}>{p}</span>
+  );
+}
 
-  useEffect(() => {
-    loadData();
-  }, []);
+// ── Route Detail Card ──────────────────────────────────────────────────────────
 
-  const handleSelectDriver = async (driverId: string) => {
-    setSelectedDriverId(driverId);
-    await loadDriverRouteDetail(driverId, routes);
-  };
-
-  const handleStartTrip = async (routeId: string) => {
-    try {
-      setActionLoading(true);
-      await api.startRoute(routeId);
-      showToast('🚀 Trip started! Navigation in progress.');
-      await loadData(selectedDriverId);
-    } catch (err: any) {
-      showToast(err instanceof ApiError ? err.message : 'Failed to start trip');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleCompleteTrip = async (routeId: string) => {
-    try {
-      setActionLoading(true);
-      await api.completeRoute(routeId);
-      showToast('🎉 Trip completed successfully! All tasks finished.');
-      await loadData(selectedDriverId);
-    } catch (err: any) {
-      showToast(err instanceof ApiError ? err.message : 'Failed to complete trip');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleUpdateStop = async (routeId: string, stopId: string, status: 'COMPLETED' | 'FAILED') => {
-    try {
-      setActionLoading(true);
-      await api.updateRouteStopStatus(routeId, stopId, status);
-      showToast(
-        status === 'COMPLETED'
-          ? '✅ Stop marked as Delivered successfully!'
-          : '⚠️ Stop marked as Failed/Attempted.'
-      );
-      // Reload route detail
-      const full = await api.getRouteById(routeId);
-      setActiveRouteDetail(full);
-      // Also reload routes list
-      const rList = await api.getRoutes();
-      setRoutes(rList);
-    } catch (err: any) {
-      showToast(err instanceof ApiError ? err.message : 'Failed to update stop status');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const currentDriver = drivers.find((d) => d.id === selectedDriverId) || drivers[0];
-
-  const stops = activeRouteDetail?.stops || [];
-  const completedStops = stops.filter((s) => s.status === 'COMPLETED').length;
-  const progressPercent = stops.length > 0 ? Math.round((completedStops / stops.length) * 100) : 0;
+function RouteDetailCard({ route, onAction, actionLoading }: {
+  route: Route;
+  onAction: (routeId: string, action: 'start' | 'complete' | 'cancel') => void;
+  actionLoading: boolean;
+}) {
+  const stops = route.stops ?? [];
+  const completed = stops.filter(s => s.status === 'COMPLETED').length;
+  const progressPct = stops.length > 0 ? Math.round((completed / stops.length) * 100) : 0;
 
   return (
-    <div className="driver-page">
-      {/* Toast Notification */}
-      {toastMessage && <div className="toast-notification">{toastMessage}</div>}
-
-      {/* Top Header Bar */}
-      <div className="page-header">
-        <div>
-          <div className="page-badge">🚚 DRIVER PORTAL & FLEET TASKS</div>
-          <h1 className="page-title">Driver Tasks & Live Status</h1>
-          <p className="page-subtitle">
-            View assigned delivery runs, track real-time stop sequences, and update order statuses.
-          </p>
-        </div>
-
-        <div className="header-actions">
-          <div className="view-toggle">
-            <button
-              className={`toggle-btn ${viewMode === 'driver' ? 'active' : ''}`}
-              onClick={() => setViewMode('driver')}
-            >
-              👤 Driver View
-            </button>
-            <button
-              className={`toggle-btn ${viewMode === 'fleet' ? 'active' : ''}`}
-              onClick={() => setViewMode('fleet')}
-            >
-              📊 Fleet Overview
-            </button>
-          </div>
-          <button className="btn btn-outline" onClick={() => loadData(selectedDriverId)}>
-            🔄 Refresh
-          </button>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="loading-state">
-          <span className="spinner" />
-          <p>Loading driver schedules and assigned tasks…</p>
-        </div>
-      ) : viewMode === 'fleet' ? (
-        /* ════════════════════════════════════════════════════════════════════════
-           FLEET OVERVIEW VIEW (All drivers side-by-side)
-           ════════════════════════════════════════════════════════════════════════ */
-        <div className="fleet-view-grid">
-          {drivers.map((d) => {
-            const activeR = routes.find(
-              (r) => r.driverId === d.id && (r.status === 'IN_PROGRESS' || r.status === 'PLANNED')
-            );
-            const totalStopsCount = activeR?._count?.stops ?? activeR?.stops?.length ?? 0;
-            const isAssigned = !!activeR;
-
-            return (
-              <div key={d.id} className="fleet-card">
-                <div className="fleet-card-header">
-                  <div className="driver-avatar-circle">
-                    {d.name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                      {d.name}
-                    </h3>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      📱 {d.phone} • DL: {d.licenseNumber}
-                    </div>
-                  </div>
-                  <span
-                    className={`status-chip ${
-                      activeR?.status === 'IN_PROGRESS'
-                        ? 'status-in-progress'
-                        : activeR?.status === 'PLANNED'
-                        ? 'status-planned'
-                        : 'status-idle'
-                    }`}
-                  >
-                    {activeR?.status === 'IN_PROGRESS'
-                      ? 'IN TRANSIT'
-                      : activeR?.status === 'PLANNED'
-                      ? 'ASSIGNED'
-                      : 'AVAILABLE'}
-                  </span>
-                </div>
-
-                <div className="fleet-card-body">
-                  <div className="meta-pill-group">
-                    <div className="meta-pill">
-                      <span className="label">Vehicle:</span>
-                      <span className="value">
-                        {d.vehicle?.plateNumber || 'TS-09-EV-1024'} ({d.vehicle?.type || 'VAN'})
-                      </span>
-                    </div>
-                    <div className="meta-pill">
-                      <span className="label">Capacity:</span>
-                      <span className="value">{d.vehicle?.capacityKg || 850} kg</span>
-                    </div>
-                  </div>
-
-                  {isAssigned ? (
-                    <div className="fleet-task-summary">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                        <span>
-                          📍 <strong>{activeR.warehouse?.name || 'Warehouse Hub'}</strong>
-                        </span>
-                        <span>
-                          <strong>{totalStopsCount}</strong> stops
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        <span>Distance: {activeR.totalDistanceKm ?? '--'} km</span>
-                        <span>Est: {activeR.estimatedDurationMin ?? '--'} min</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="fleet-no-task">No active trips assigned. Ready for next optimization run.</div>
-                  )}
-                </div>
-
-                <div className="fleet-card-footer">
-                  <button
-                    className="btn btn-outline btn-sm"
-                    style={{ width: '100%' }}
-                    onClick={() => {
-                      setSelectedDriverId(d.id);
-                      setViewMode('driver');
-                      loadDriverRouteDetail(d.id, routes);
-                    }}
-                  >
-                    Open Driver Portal →
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        /* ════════════════════════════════════════════════════════════════════════
-           INDIVIDUAL DRIVER PORTAL VIEW (Active Tasks, Stops & Actions)
-           ════════════════════════════════════════════════════════════════════════ */
-        <div className="driver-portal-layout">
-          {/* Driver Switcher & Profile Card */}
-          <div className="driver-profile-card">
-            <div className="driver-select-container">
-              <label className="form-label" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
-                Select Active Driver:
-              </label>
-              <select
-                className="form-select"
-                value={selectedDriverId}
-                onChange={(e) => handleSelectDriver(e.target.value)}
-              >
-                {drivers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} — {d.vehicle?.plateNumber || 'Vehicle Assigned'}
-                  </option>
-                ))}
-              </select>
+    <div style={{
+      background: 'var(--surface)',
+      border: `2px solid ${STATUS_COLOR[route.status] ?? 'var(--border)'}30`,
+      borderRadius: 14,
+      overflow: 'hidden',
+    }}>
+      {/* Route Header */}
+      <div style={{
+        padding: '16px 20px',
+        background: route.status === 'IN_PROGRESS'
+          ? 'linear-gradient(135deg, rgba(37,99,235,0.06), rgba(37,99,235,0.02))'
+          : route.status === 'COMPLETED'
+            ? 'linear-gradient(135deg, rgba(22,163,74,0.06), rgba(22,163,74,0.02))'
+            : 'var(--surface)',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <StatusBadge s={route.status} />
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-3)', fontFamily: 'monospace' }}>
+                Route #{route.id.slice(-8).toUpperCase()}
+              </span>
             </div>
-
-            {currentDriver && (
-              <div className="driver-info-box">
-                <div className="driver-info-header">
-                  <div className="driver-large-avatar">
-                    {currentDriver.name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')}
-                  </div>
-                  <div>
-                    <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>
-                      {currentDriver.name}
-                    </h2>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                      DL No: {currentDriver.licenseNumber}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="driver-meta-grid">
-                  <div className="driver-meta-item">
-                    <span className="meta-label">Phone</span>
-                    <span className="meta-val">{currentDriver.phone}</span>
-                  </div>
-                  <div className="driver-meta-item">
-                    <span className="meta-label">Vehicle</span>
-                    <span className="meta-val">
-                      {currentDriver.vehicle?.plateNumber || 'TS-09-EV-1024'}
-                    </span>
-                  </div>
-                  <div className="driver-meta-item">
-                    <span className="meta-label">Type & Fuel</span>
-                    <span className="meta-val">
-                      {currentDriver.vehicle?.type || 'VAN'} • {currentDriver.vehicle?.fuelType || 'ELECTRIC'}
-                    </span>
-                  </div>
-                  <div className="driver-meta-item">
-                    <span className="meta-label">Max Load</span>
-                    <span className="meta-val">{currentDriver.vehicle?.capacityKg || 850} kg</span>
-                  </div>
-                </div>
-              </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: '0.85rem', color: 'var(--text-2)', flexWrap: 'wrap' }}>
+              <span>🏭 {route.warehouse?.name ?? 'Warehouse'}</span>
+              <span>🚗 {route.vehicle?.plateNumber ?? 'Vehicle'} ({route.vehicle?.type ?? ''})</span>
+            </div>
+          </div>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {route.status === 'PLANNED' && (
+              <>
+                <button className="btn btn-primary btn-sm" onClick={() => onAction(route.id, 'start')} disabled={actionLoading}>
+                  {actionLoading ? <span className="spinner" /> : '🚀 Start Trip'}
+                </button>
+                <button className="btn btn-outline btn-sm" onClick={() => onAction(route.id, 'cancel')} disabled={actionLoading}
+                  style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
+                  Cancel
+                </button>
+              </>
+            )}
+            {route.status === 'IN_PROGRESS' && (
+              <button className="btn btn-primary btn-sm" onClick={() => onAction(route.id, 'complete')} disabled={actionLoading}
+                style={{ background: 'var(--green-700)' }}>
+                {actionLoading ? <span className="spinner" /> : '✅ Mark Complete'}
+              </button>
             )}
           </div>
+        </div>
 
-          {/* Assigned Route & Tasks Detail Section */}
-          <div className="driver-tasks-container">
-            {activeRouteDetail ? (
-              <>
-                {/* Active Trip Header Banner */}
-                <div className="trip-banner">
-                  <div className="trip-banner-top">
-                    <div>
-                      <div className="trip-tag">ACTIVE ASSIGNED RUN</div>
-                      <h2 className="trip-title">
-                        {activeRouteDetail.warehouse?.name || 'Warehouse Depot'}
-                      </h2>
-                      <div className="trip-sub">
-                        Route ID: <code style={{ fontSize: '0.8rem' }}>{activeRouteDetail.id.slice(0, 8)}</code>
-                        {' • '}
-                        Status:{' '}
-                        <span
-                          className={`badge ${
-                            activeRouteDetail.status === 'IN_PROGRESS'
-                              ? 'badge-in-progress'
-                              : activeRouteDetail.status === 'PLANNED'
-                              ? 'badge-planned'
-                              : 'badge-completed'
-                          }`}
-                        >
-                          {activeRouteDetail.status}
-                        </span>
-                      </div>
-                    </div>
+        {/* Stats row */}
+        <div style={{ display: 'flex', gap: 20, marginTop: 12, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Stops', value: `${stops.length}` },
+            { label: 'Distance', value: route.totalDistanceKm ? `${route.totalDistanceKm} km` : '—' },
+            { label: 'Duration', value: fmtDuration(route.estimatedDurationMin) },
+            route.status === 'PLANNED' ? { label: 'Departs', value: fmtTime(route.plannedDepartureAt) } : null,
+            route.status === 'IN_PROGRESS' ? { label: 'Departed', value: fmtTime(route.actualDepartureAt) } : null,
+            route.status === 'COMPLETED' ? { label: 'Completed', value: fmtTime(route.completedAt) } : null,
+          ].filter(Boolean).map(stat => (
+            <div key={stat!.label}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat!.label}</div>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{stat!.value}</div>
+            </div>
+          ))}
+        </div>
 
-                    <div className="trip-actions">
-                      {activeRouteDetail.status === 'PLANNED' && (
-                        <button
-                          className="btn btn-primary"
-                          disabled={actionLoading}
-                          onClick={() => handleStartTrip(activeRouteDetail.id)}
-                        >
-                          ▶ Start Trip & Navigate
-                        </button>
-                      )}
-                      {activeRouteDetail.status === 'IN_PROGRESS' && (
-                        <button
-                          className="btn btn-success"
-                          disabled={actionLoading}
-                          onClick={() => handleCompleteTrip(activeRouteDetail.id)}
-                        >
-                          🏁 Complete Trip
-                        </button>
-                      )}
+        {/* Progress bar (only for IN_PROGRESS) */}
+        {route.status === 'IN_PROGRESS' && stops.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 4 }}>
+              <span>Delivery Progress</span>
+              <span>{completed}/{stops.length} stops done ({progressPct}%)</span>
+            </div>
+            <div style={{ height: 6, background: 'var(--surface-3)', borderRadius: 999 }}>
+              <div style={{
+                height: '100%', width: `${progressPct}%`,
+                background: 'linear-gradient(90deg, #22c55e, #16a34a)',
+                borderRadius: 999, transition: 'width 0.5s ease',
+              }} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Stops list */}
+      {stops.length > 0 ? (
+        <div style={{ padding: '16px 20px' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+            Delivery Stops — Sequence
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {stops.sort((a, b) => a.stopSequence - b.stopSequence).map((stop, idx) => {
+              const isDone = stop.status === 'COMPLETED';
+              const isFailed = stop.status === 'FAILED';
+              return (
+                <div key={stop.id} style={{ display: 'flex', gap: 0 }}>
+                  {/* Timeline connector */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginRight: 12, flexShrink: 0 }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                      background: isDone ? '#22c55e' : isFailed ? '#dc2626' : 'var(--surface-3)',
+                      border: `2px solid ${isDone ? '#16a34a' : isFailed ? '#b91c1c' : 'var(--border)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.78rem', fontWeight: 700, color: isDone || isFailed ? '#fff' : 'var(--text-2)',
+                    }}>
+                      {isDone ? '✓' : isFailed ? '✗' : idx + 1}
                     </div>
+                    {idx < stops.length - 1 && (
+                      <div style={{ width: 2, flex: 1, minHeight: 16, background: isDone ? '#22c55e' : 'var(--border)', marginTop: 2 }} />
+                    )}
                   </div>
 
-                  {/* Trip Metrics Row */}
-                  <div className="trip-metrics-row">
-                    <div className="trip-metric">
-                      <span className="val">{activeRouteDetail.totalDistanceKm ?? '--'} km</span>
-                      <span className="lbl">Total Distance</span>
-                    </div>
-                    <div className="trip-metric">
-                      <span className="val">{activeRouteDetail.estimatedDurationMin ?? '--'} min</span>
-                      <span className="lbl">Est. Duration</span>
-                    </div>
-                    <div className="trip-metric">
-                      <span className="val">{stops.length}</span>
-                      <span className="lbl">Total Stops</span>
-                    </div>
-                    <div className="trip-metric">
-                      <span className="val">{completedStops} / {stops.length}</span>
-                      <span className="lbl">Delivered</span>
-                    </div>
-                  </div>
-
-                  {/* Trip Progress Bar */}
-                  <div className="trip-progress-container">
-                    <div className="progress-label">
-                      <span>Delivery Completion</span>
-                      <span>{progressPercent}%</span>
-                    </div>
-                    <div className="progress-bar-bg">
-                      <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sequential Delivery Stops Section */}
-                <div className="stops-timeline-header">
-                  <h3>📦 Delivery Tasks ({stops.length} Stops in Sequence)</h3>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Deliver in strict ascending order for optimal mileage & time window compliance.
-                  </span>
-                </div>
-
-                <div className="stops-timeline">
-                  {stops.map((stop: RouteStop, index: number) => {
-                    const isCompleted = stop.status === 'COMPLETED';
-                    const isFailed = stop.status === 'FAILED';
-                    const isPending = stop.status === 'PENDING';
-
-                    return (
-                      <div
-                        key={stop.id}
-                        className={`stop-timeline-card ${
-                          isCompleted ? 'stop-done' : isFailed ? 'stop-failed' : 'stop-active'
-                        }`}
-                      >
-                        <div className="stop-badge-column">
-                          <div className="stop-number-circle">{stop.stopSequence || index + 1}</div>
-                          {index < stops.length - 1 && <div className="stop-line" />}
+                  {/* Stop content */}
+                  <div style={{
+                    flex: 1, paddingBottom: idx < stops.length - 1 ? 14 : 0,
+                    opacity: isFailed ? 0.6 : 1,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{
+                          fontWeight: 700, fontSize: '0.9rem',
+                          textDecoration: isFailed ? 'line-through' : 'none',
+                          color: isDone ? 'var(--text-2)' : 'var(--text-1)',
+                        }}>
+                          {stop.order?.customerName ?? `Order #${stop.orderId.slice(-6).toUpperCase()}`}
                         </div>
-
-                        <div className="stop-card-content">
-                          <div className="stop-card-header">
-                            <div>
-                              <h4 className="customer-name">
-                                {stop.order?.customerName || `Order #${stop.orderId.slice(0, 8)}`}
-                              </h4>
-                              <p className="delivery-address">📍 {stop.order?.address || 'Address details'}</p>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              {stop.order?.priority && (
-                                <span className={`priority-badge priority-${stop.order.priority.toLowerCase()}`}>
-                                  {stop.order.priority} PRIORITY
-                                </span>
-                              )}
-                              <span
-                                className={`stop-status-chip ${
-                                  isCompleted
-                                    ? 'chip-completed'
-                                    : isFailed
-                                    ? 'chip-failed'
-                                    : 'chip-pending'
-                                }`}
-                              >
-                                {stop.status}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="stop-details-row">
-                            <div className="stop-meta-tag">
-                              ⚖️ Weight: <strong>{stop.order?.weightKg ?? 10} kg</strong>
-                            </div>
-                            <div className="stop-meta-tag">
-                              🕒 Scheduled ETA:{' '}
-                              <strong>
-                                {stop.projectedArrival
-                                  ? new Date(stop.projectedArrival).toLocaleTimeString([], {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })
-                                  : '--:--'}
-                              </strong>
-                            </div>
-                            {stop.actualArrival && (
-                              <div className="stop-meta-tag delivered-tag">
-                                ✨ Delivered at:{' '}
-                                <strong>
-                                  {new Date(stop.actualArrival).toLocaleTimeString([], {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                </strong>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Driver Stop Action Buttons */}
-                          {activeRouteDetail.status === 'IN_PROGRESS' && isPending && (
-                            <div className="stop-actions-bar">
-                              <button
-                                className="btn btn-success btn-sm"
-                                disabled={actionLoading}
-                                onClick={() => handleUpdateStop(activeRouteDetail.id, stop.id, 'COMPLETED')}
-                              >
-                                ✅ Mark Delivered
-                              </button>
-                              <button
-                                className="btn btn-outline btn-sm"
-                                disabled={actionLoading}
-                                onClick={() => handleUpdateStop(activeRouteDetail.id, stop.id, 'FAILED')}
-                              >
-                                ⚠️ Report Issue / Failed
-                              </button>
-                              <button
-                                className="btn btn-outline btn-sm"
-                                onClick={() => showToast(`📞 Calling customer: ${stop.order?.customerName}`)}
-                              >
-                                📞 Call Customer
-                              </button>
-                              <a
-                                href={`https://maps.google.com/?q=${stop.order?.latitude || 17.44},${
-                                  stop.order?.longitude || 78.38
-                                }`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="btn btn-outline btn-sm"
-                              >
-                                🗺️ Open GPS Maps
-                              </a>
-                            </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-2)', marginTop: 2 }}>
+                          📍 {stop.order?.address ?? 'Address not available'}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {stop.order?.priority && <PriorityBadge p={stop.order.priority} />}
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>
+                            {stop.order?.weightKg ?? '—'} kg
+                          </span>
+                          {stop.projectedArrival && (
+                            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: isDone ? '#16a34a' : '#0284c7' }}>
+                              ⏰ {isDone ? 'Arrived' : 'ETA'}: {fmtTime(stop.actualArrival ?? stop.projectedArrival)}
+                            </span>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
+                      <StatusBadge s={stop.status} />
+                    </div>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="empty-tasks-card">
-                <div style={{ fontSize: '3rem', marginBottom: '12px' }}>☕</div>
-                <h3>No Active Trips Assigned</h3>
-                <p style={{ color: 'var(--text-muted)', maxWidth: '420px', margin: '0 auto 16px' }}>
-                  {currentDriver?.name} currently has no pending or in-progress routes. You can optimize and dispatch
-                  new orders from the Routes page.
-                </p>
-              </div>
-            )}
+              );
+            })}
           </div>
         </div>
+      ) : (
+        <div style={{ padding: '20px', color: 'var(--text-3)', fontSize: '0.875rem' }}>
+          No stops loaded for this route.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main DriverPage ────────────────────────────────────────────────────────────
+
+export default function DriverPage() {
+  const [drivers, setDrivers]               = useState<Driver[]>([]);
+  const [routesByDriver, setRoutesByDriver] = useState<Record<string, Route[]>>({});
+  const [selectedDriverId, setSelectedDriverId] = useState<string>('');
+  const [loading, setLoading]               = useState(true);
+  const [actionLoading, setActionLoading]   = useState(false);
+  const [toast, setToast]                   = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [driversData, routesData] = await Promise.all([api.getDrivers(), api.getRoutes()]);
+      setDrivers(driversData);
+
+      // Group routes by driver
+      const grouped: Record<string, Route[]> = {};
+      for (const r of routesData) {
+        if (!grouped[r.driverId]) grouped[r.driverId] = [];
+        grouped[r.driverId].push(r);
+      }
+      setRoutesByDriver(grouped);
+
+      // Default to Suresh Reddy (first driver) or first available
+      if (!selectedDriverId && driversData.length > 0) {
+        setSelectedDriverId(driversData[0].id);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedDriverId]);
+
+  // Fetch full route details (with stops) for selected driver's routes
+  const [driverRoutes, setDriverRoutes] = useState<Route[]>([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
+
+  const loadDriverRoutes = useCallback(async (driverId: string, allRoutes: Record<string, Route[]>) => {
+    const basic = allRoutes[driverId] ?? [];
+    if (basic.length === 0) { setDriverRoutes([]); return; }
+    setRoutesLoading(true);
+    try {
+      const full = await Promise.all(basic.map(r => api.getRouteById(r.id).catch(() => r)));
+      // Sort: IN_PROGRESS first, then PLANNED, then COMPLETED, then rest
+      const order: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, COMPLETED: 2, CANCELLED: 3 };
+      full.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+      setDriverRoutes(full);
+    } catch (e) {
+      setDriverRoutes(basic);
+    } finally {
+      setRoutesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, []);
+
+  useEffect(() => {
+    if (selectedDriverId) {
+      loadDriverRoutes(selectedDriverId, routesByDriver);
+    }
+  }, [selectedDriverId, routesByDriver]);
+
+  const handleAction = async (routeId: string, action: 'start' | 'complete' | 'cancel') => {
+    setActionLoading(true);
+    try {
+      if (action === 'start')    await api.startRoute(routeId);
+      if (action === 'complete') await api.completeRoute(routeId);
+      if (action === 'cancel')   await api.cancelRoute(routeId);
+      showToast(action === 'start' ? '🚀 Trip started!' : action === 'complete' ? '✅ Route marked complete!' : '🚫 Route cancelled.');
+      // Reload
+      const [driversData, routesData] = await Promise.all([api.getDrivers(), api.getRoutes()]);
+      setDrivers(driversData);
+      const grouped: Record<string, Route[]> = {};
+      for (const r of routesData) {
+        if (!grouped[r.driverId]) grouped[r.driverId] = [];
+        grouped[r.driverId].push(r);
+      }
+      setRoutesByDriver(grouped);
+      await loadDriverRoutes(selectedDriverId, grouped);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Action failed.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const selectedDriver = drivers.find(d => d.id === selectedDriverId);
+
+  if (loading) {
+    return (
+      <div className="empty-state">
+        <span className="spinner spinner-dark" />
+        <p style={{ marginTop: 12, color: 'var(--text-3)' }}>Loading driver data…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-enter">
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999,
+          background: '#1a1a1a', color: '#fff', padding: '12px 18px',
+          borderRadius: 10, fontSize: '0.9rem', fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)', maxWidth: 320,
+          animation: 'fadeIn 0.2s ease',
+        }}>
+          {toast}
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <div className="page-header">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <h2 className="page-title">Driver Portal</h2>
+            <p className="page-subtitle">Select a driver to view their allocated routes and delivery stops</p>
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 Refresh</button>
+        </div>
+      </div>
+
+      {/* ── Driver selector ── */}
+      {drivers.length === 0 ? (
+        <div className="empty-state">
+          <p style={{ fontSize: '2rem', marginBottom: 8 }}>👤</p>
+          <p style={{ fontWeight: 600 }}>No Drivers Found</p>
+          <p style={{ color: 'var(--text-3)', fontSize: '0.875rem', marginTop: 4 }}>
+            Add drivers via the backend seed or admin API.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Driver pills */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+            {drivers.map(d => {
+              const dRoutes = routesByDriver[d.id] ?? [];
+              const hasActive = dRoutes.some(r => r.status === 'IN_PROGRESS');
+              const hasPlanned = dRoutes.some(r => r.status === 'PLANNED');
+              const isSelected = d.id === selectedDriverId;
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => setSelectedDriverId(d.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 16px',
+                    background: isSelected ? 'var(--green-800)' : 'var(--surface)',
+                    color: isSelected ? '#fff' : 'var(--text-1)',
+                    border: `2px solid ${isSelected ? 'var(--green-700)' : 'var(--border)'}`,
+                    borderRadius: 10, cursor: 'pointer',
+                    fontFamily: 'var(--font-sans)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    background: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--green-100)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '1rem',
+                  }}>
+                    👤
+                  </div>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{d.name}</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.75, marginTop: 1 }}>
+                      {hasActive ? '🟢 On Road' : hasPlanned ? '🟡 Ready' : dRoutes.length > 0 ? `${dRoutes.length} route${dRoutes.length !== 1 ? 's' : ''}` : 'No routes'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selected driver info bar */}
+          {selectedDriver && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 14,
+              padding: '14px 18px',
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 12, marginBottom: 20,
+              flexWrap: 'wrap',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%',
+                background: 'var(--green-100)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.4rem', flexShrink: 0,
+              }}>👤</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: '1rem' }}>{selectedDriver.name}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 2 }}>
+                  <span>📞 {selectedDriver.phone}</span>
+                  <span>🪪 {selectedDriver.licenseNumber}</span>
+                  {selectedDriver.vehicle && (
+                    <span>🚗 {selectedDriver.vehicle.plateNumber} ({selectedDriver.vehicle.type})</span>
+                  )}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--green-700)' }}>
+                  {driverRoutes.length}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Total Routes</div>
+              </div>
+            </div>
+          )}
+
+          {/* Routes for selected driver */}
+          {routesLoading ? (
+            <div className="empty-state" style={{ padding: '30px 0' }}>
+              <span className="spinner spinner-dark" />
+              <p style={{ marginTop: 8, color: 'var(--text-3)' }}>Loading routes…</p>
+            </div>
+          ) : driverRoutes.length === 0 ? (
+            <div className="empty-state" style={{ padding: '40px 20px' }}>
+              <p style={{ fontSize: '2rem', marginBottom: 8 }}>🛣️</p>
+              <p style={{ fontWeight: 600, marginBottom: 4 }}>No Routes Assigned Yet</p>
+              <p style={{ color: 'var(--text-3)', fontSize: '0.875rem' }}>
+                {selectedDriver?.name} doesn't have any routes assigned. The dispatcher can run optimization to assign orders.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {driverRoutes.map(route => (
+                <RouteDetailCard
+                  key={route.id}
+                  route={route}
+                  onAction={handleAction}
+                  actionLoading={actionLoading}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

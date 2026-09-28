@@ -8,11 +8,9 @@
  *
  * Everything else (middleware, routes, error handling) is in app.ts.
  */
-
 import app from "./src/app";
 import { env } from "./src/config/env";
 import { prisma } from "./src/prisma/client";
-
 const server = app.listen(env.PORT, () => {
   console.log(`SmartRoute API running on http://localhost:${env.PORT}`);
   console.log(`Environment: ${env.NODE_ENV}`);

@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import * as api from '../api';
-import type { DispatcherLive, ActiveRouteItem, PlannedRouteItem } from '../types';
+import type { Order, Driver, Vehicle, Warehouse, Route } from '../types';
+import { ApiError } from '../api/client';
 
 interface DispatcherDashboardProps {
   onNavigate?: (page: 'dashboard' | 'orders' | 'routes' | 'drivers') => void;
 }
 
-// Format duration in minutes → "1h 20m"
+// ── Small helpers ──────────────────────────────────────────────────────────────
+
 function fmtDuration(min: number | null) {
   if (!min) return '—';
   const h = Math.floor(min / 60);
@@ -14,161 +16,390 @@ function fmtDuration(min: number | null) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-// Format a timestamp into a short local time string
-function fmtTime(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-}
-
-// Status badge for route cards
-function StatusBadge({ status }: { status: 'IN_PROGRESS' | 'PLANNED' }) {
-  const styles: Record<string, React.CSSProperties> = {
-    IN_PROGRESS: { background: 'rgba(59,130,246,0.12)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' },
-    PLANNED:     { background: 'rgba(245,158,11,0.12)', color: '#d97706', border: '1px solid rgba(245,158,11,0.25)' },
-  };
-  const labels: Record<string, string> = { IN_PROGRESS: '🟢 On Road', PLANNED: '🟡 Ready' };
+function PriorityBadge({ p }: { p: string }) {
+  const col = p === 'HIGH' ? '#dc2626' : p === 'MEDIUM' ? '#d97706' : '#6b7280';
   return (
     <span style={{
-      ...styles[status],
-      fontSize: '0.72rem',
-      fontWeight: 600,
-      padding: '2px 8px',
-      borderRadius: 999,
-      letterSpacing: '0.03em',
-    }}>
-      {labels[status]}
-    </span>
+      fontSize: '0.7rem', fontWeight: 700, padding: '2px 7px',
+      borderRadius: 999, background: col + '18', color: col,
+      border: `1px solid ${col}30`,
+    }}>{p}</span>
   );
 }
 
-function ActiveRouteCard({ route, onView }: { route: ActiveRouteItem; onView: () => void }) {
+function StatusBadge({ s }: { s: string }) {
+  const map: Record<string, string> = {
+    PENDING: '#d97706', ASSIGNED: '#2563eb', DELIVERED: '#16a34a',
+    FAILED: '#dc2626', CANCELLED: '#6b7280',
+    PLANNED: '#d97706', IN_PROGRESS: '#2563eb', COMPLETED: '#16a34a',
+  };
+  const col = map[s] ?? '#6b7280';
   return (
-    <div className="route-card" style={{
-      padding: '14px 16px',
-      background: 'var(--surface-2)',
-      borderRadius: 12,
-      border: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10,
+    <span style={{
+      fontSize: '0.7rem', fontWeight: 700, padding: '2px 7px',
+      borderRadius: 999, background: col + '15', color: col,
+      border: `1px solid ${col}25`,
+    }}>{s.replace('_', ' ')}</span>
+  );
+}
+
+// ── Optimization Result Panel ──────────────────────────────────────────────────
+
+interface OptResult {
+  routesCreated: number;
+  routes: Route[];
+  unassignedOrderCount: number;
+  warning: string | null;
+}
+
+function OptimizationResultPanel({ result, drivers, warehouses, onClose }: {
+  result: OptResult;
+  drivers: Driver[];
+  warehouses: Warehouse[];
+  onClose: () => void;
+}) {
+  const [expandedRoute, setExpandedRoute] = useState<string | null>(
+    result.routes[0]?.id ?? null
+  );
+
+  const driverName = (id: string) => drivers.find(d => d.id === id)?.name ?? 'Unknown';
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
+      border: '2px solid #86efac',
+      borderRadius: 14,
+      padding: 20,
+      marginTop: 20,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <StatusBadge status="IN_PROGRESS" />
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-3)', fontFamily: 'monospace' }}>
-            #{route.id.slice(-6).toUpperCase()}
-          </span>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#15803d', display: 'flex', alignItems: 'center', gap: 8 }}>
+            ✅ Optimization Complete!
+          </div>
+          <div style={{ fontSize: '0.85rem', color: '#16a34a', marginTop: 4 }}>
+            {result.routesCreated} route{result.routesCreated !== 1 ? 's' : ''} created
+            {result.unassignedOrderCount > 0 && ` · ${result.unassignedOrderCount} orders could not be assigned`}
+          </div>
         </div>
-        <button className="btn btn-outline btn-sm" onClick={onView} style={{ fontSize: '0.75rem' }}>
-          View Route →
+        <button className="btn btn-outline btn-sm" onClick={onClose} style={{ borderColor: '#86efac', color: '#16a34a' }}>
+          ✕ Dismiss
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: '0.85rem' }}>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Driver</div>
-          <div style={{ fontWeight: 600 }}>👤 {route.driverName}</div>
+      {result.warning && (
+        <div className="alert alert-warning" style={{ marginBottom: 14, fontSize: '0.85rem' }}>
+          ⚠️ {result.warning}
         </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Vehicle</div>
-          <div style={{ fontWeight: 600 }}>🚚 {route.vehiclePlate}</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Warehouse</div>
-          <div style={{ fontWeight: 600 }}>🏭 {route.warehouseName}</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Departed At</div>
-          <div style={{ fontWeight: 600 }}>⏱ {fmtTime(route.actualDepartureAt)}</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Stops</div>
-          <div style={{ fontWeight: 600 }}>📍 {route.totalStops} stops</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Est. Duration</div>
-          <div style={{ fontWeight: 600 }}>🕐 {fmtDuration(route.estimatedDurationMin)}</div>
-        </div>
+      )}
+
+      {/* Route cards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {result.routes.map((route, idx) => {
+          const isOpen = expandedRoute === route.id;
+          return (
+            <div key={route.id} style={{
+              background: '#fff',
+              borderRadius: 10,
+              border: '1px solid #bbf7d0',
+              overflow: 'hidden',
+            }}>
+              {/* Route header — always visible */}
+              <button
+                onClick={() => setExpandedRoute(isOpen ? null : route.id)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    background: 'linear-gradient(135deg,#22c55e,#16a34a)',
+                    color: '#fff', fontWeight: 700, fontSize: '0.85rem',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {idx + 1}
+                  </div>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--text-1)', fontSize: '0.95rem' }}>
+                      👤 {driverName(route.driverId)}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: 1 }}>
+                      {(route.stops?.length ?? route._count?.stops ?? 0)} stops ·{' '}
+                      {route.totalDistanceKm ?? '—'} km ·{' '}
+                      {fmtDuration(route.estimatedDurationMin)} estimated
+                    </div>
+                  </div>
+                </div>
+                <span style={{ color: 'var(--text-3)', fontSize: '1rem' }}>{isOpen ? '▲' : '▼'}</span>
+              </button>
+
+              {/* Expanded: stop sequence */}
+              {isOpen && route.stops && route.stops.length > 0 && (
+                <div style={{ borderTop: '1px solid #bbf7d0', padding: '12px 16px' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#15803d', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Delivery Sequence
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {route.stops.sort((a, b) => a.stopSequence - b.stopSequence).map((stop, si) => (
+                      <div key={stop.id} style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10,
+                        padding: '8px 12px', borderRadius: 8, background: '#f0fdf4',
+                        border: '1px solid #bbf7d0',
+                      }}>
+                        {/* Step number */}
+                        <div style={{
+                          minWidth: 22, height: 22, borderRadius: '50%',
+                          background: '#22c55e', color: '#fff',
+                          fontSize: '0.72rem', fontWeight: 700,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0, marginTop: 1,
+                        }}>
+                          {si + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-1)' }}>
+                            {stop.order?.customerName ?? `Order #${stop.orderId.slice(-6).toUpperCase()}`}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-2)', marginTop: 2 }}>
+                            📍 {stop.order?.address ?? 'Address not available'}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                            {stop.order?.priority && <PriorityBadge p={stop.order.priority} />}
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>
+                              {stop.order?.weightKg ?? '—'} kg
+                            </span>
+                            {stop.projectedArrival && (
+                              <span style={{ fontSize: '0.72rem', color: '#0284c7', fontWeight: 600 }}>
+                                ⏰ ETA {new Date(stop.projectedArrival).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function PlannedRouteCard({ route, onView }: { route: PlannedRouteItem; onView: () => void }) {
+// ── Optimize Panel ─────────────────────────────────────────────────────────────
+
+function OptimizePanel({
+  warehouses, vehicles, drivers, pendingCount, onOptimized,
+}: {
+  warehouses: Warehouse[];
+  vehicles: Vehicle[];
+  drivers: Driver[];
+  pendingCount: number;
+  onOptimized: (result: OptResult) => void;
+}) {
+  const [warehouseId, setWarehouseId]     = useState(warehouses[0]?.id ?? '');
+  const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
+  const [selectedDrivers, setSelectedDrivers]   = useState<string[]>([]);
+  const [error, setError]   = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const toggleVehicle = (id: string) =>
+    setSelectedVehicles(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const toggleDriver = (id: string) =>
+    setSelectedDrivers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const handleRun = async () => {
+    setError('');
+    if (selectedVehicles.length === 0 || selectedDrivers.length === 0) {
+      setError('Select at least one vehicle and one driver.');
+      return;
+    }
+    if (selectedVehicles.length !== selectedDrivers.length) {
+      setError(`Select equal numbers: ${selectedVehicles.length} vehicle(s) vs ${selectedDrivers.length} driver(s).`);
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await api.optimizeRoutes({
+        warehouseId,
+        vehicleIds: selectedVehicles,
+        driverIds: selectedDrivers,
+      });
+      // Fetch full route details with stops for the result display
+      const routesWithStops = await Promise.all(
+        result.routes.map(r => api.getRouteById(r.id).catch(() => r))
+      );
+      onOptimized({ ...result, routes: routesWithStops });
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+      else setError('Optimization failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const countMismatch = selectedVehicles.length > 0 && selectedDrivers.length > 0 && selectedVehicles.length !== selectedDrivers.length;
+
   return (
-    <div className="route-card" style={{
-      padding: '14px 16px',
-      background: 'var(--surface-2)',
-      borderRadius: 12,
+    <div style={{
+      background: 'var(--surface)',
       border: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10,
+      borderRadius: 14,
+      padding: 20,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <StatusBadge status="PLANNED" />
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-3)', fontFamily: 'monospace' }}>
-            #{route.id.slice(-6).toUpperCase()}
-          </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <span style={{ fontSize: '1.3rem' }}>⚡</span>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '1rem' }}>Route Optimization Engine</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginTop: 2 }}>
+            {pendingCount > 0
+              ? `${pendingCount} pending order${pendingCount !== 1 ? 's' : ''} ready to be assigned`
+              : 'No pending orders — all orders are assigned'}
+          </div>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={onView} style={{ fontSize: '0.75rem' }}>
-          Start Route →
-        </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: '0.85rem' }}>
+      {error && <div className="alert alert-error" style={{ marginBottom: 14, fontSize: '0.85rem' }}>{error}</div>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Warehouse selector */}
         <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Driver</div>
-          <div style={{ fontWeight: 600 }}>👤 {route.driverName}</div>
+          <label className="form-label" style={{ marginBottom: 6, display: 'block' }}>🏭 Warehouse Hub</label>
+          <select className="form-select" value={warehouseId} onChange={e => setWarehouseId(e.target.value)}>
+            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
         </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Vehicle</div>
-          <div style={{ fontWeight: 600 }}>🚚 {route.vehiclePlate}</div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {/* Vehicles */}
+          <div>
+            <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>
+              🚗 Vehicles ({selectedVehicles.length} selected)
+            </label>
+            {vehicles.length === 0 ? (
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>No vehicles found.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 200, overflowY: 'auto' }}>
+                {vehicles.map(v => (
+                  <label key={v.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem',
+                    cursor: 'pointer', padding: '7px 10px', borderRadius: 8,
+                    background: selectedVehicles.includes(v.id) ? 'var(--green-50)' : 'var(--surface-2)',
+                    border: `1px solid ${selectedVehicles.includes(v.id) ? 'var(--green-400)' : 'var(--border)'}`,
+                    transition: 'all 0.12s',
+                  }}>
+                    <input type="checkbox" checked={selectedVehicles.includes(v.id)} onChange={() => toggleVehicle(v.id)} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{v.plateNumber}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>{v.type} · {v.capacityKg} kg · {v.fuelType}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Drivers */}
+          <div>
+            <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>
+              👤 Drivers ({selectedDrivers.length} selected)
+            </label>
+            {drivers.length === 0 ? (
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>No drivers found.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 200, overflowY: 'auto' }}>
+                {drivers.map(d => (
+                  <label key={d.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem',
+                    cursor: 'pointer', padding: '7px 10px', borderRadius: 8,
+                    background: selectedDrivers.includes(d.id) ? 'var(--green-50)' : 'var(--surface-2)',
+                    border: `1px solid ${selectedDrivers.includes(d.id) ? 'var(--green-400)' : 'var(--border)'}`,
+                    transition: 'all 0.12s',
+                  }}>
+                    <input type="checkbox" checked={selectedDrivers.includes(d.id)} onChange={() => toggleDriver(d.id)} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{d.name}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>{d.phone}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Warehouse</div>
-          <div style={{ fontWeight: 600 }}>🏭 {route.warehouseName}</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Planned Departure</div>
-          <div style={{ fontWeight: 600 }}>⏰ {fmtTime(route.plannedDepartureAt)}</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Stops</div>
-          <div style={{ fontWeight: 600 }}>📍 {route.totalStops} stops</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-3)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Distance</div>
-          <div style={{ fontWeight: 600 }}>📏 {route.totalDistanceKm ? `${route.totalDistanceKm} km` : '—'}</div>
-        </div>
+
+        {countMismatch && (
+          <div className="alert alert-warning" style={{ fontSize: '0.82rem' }}>
+            ⚠️ Select equal numbers: {selectedVehicles.length} vehicle{selectedVehicles.length !== 1 ? 's' : ''} vs {selectedDrivers.length} driver{selectedDrivers.length !== 1 ? 's' : ''}.
+          </div>
+        )}
+
+        <button
+          className="btn btn-primary"
+          onClick={handleRun}
+          disabled={loading || pendingCount === 0}
+          style={{ width: '100%', padding: '12px', fontSize: '0.95rem' }}
+        >
+          {loading
+            ? <><span className="spinner" /> Optimizing routes…</>
+            : pendingCount === 0
+              ? '✓ No pending orders to optimize'
+              : `⚡ Run Optimization (${pendingCount} order${pendingCount !== 1 ? 's' : ''})`}
+        </button>
       </div>
     </div>
   );
 }
+
+// ── Main Dispatcher Dashboard ──────────────────────────────────────────────────
 
 export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardProps) {
-  const [data, setData] = useState<DispatcherLive | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [orders, setOrders]         = useState<Order[]>([]);
+  const [drivers, setDrivers]       = useState<Driver[]>([]);
+  const [vehicles, setVehicles]     = useState<Vehicle[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [routes, setRoutes]         = useState<Route[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [optResult, setOptResult]   = useState<OptResult | null>(null);
+  const [orderTab, setOrderTab]     = useState<'PENDING' | 'ASSIGNED' | 'ALL'>('PENDING');
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'active' | 'planned'>('active');
 
-  const loadData = useCallback(async (isManualRefresh = false) => {
-    if (isManualRefresh) setRefreshing(true);
+  const loadAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); else setRefreshing(true);
     try {
-      setError('');
-      const live = await api.getDispatcherLive();
-      setData(live);
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed to load live operations data');
+      const [ordersData, driversData, vehiclesData, warehousesData, routesData] = await Promise.all([
+        api.getOrders(),
+        api.getDrivers(),
+        api.getVehicles(),
+        api.getWarehouses(),
+        api.getRoutes(),
+      ]);
+      setOrders(ordersData);
+      setDrivers(driversData);
+      setVehicles(vehiclesData);
+      setWarehouses(warehousesData);
+      setRoutes(routesData);
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const handleOptimized = (result: OptResult) => {
+    setOptResult(result);
+    loadAll(true); // refresh data silently
+  };
 
   if (loading) {
     return (
@@ -179,218 +410,218 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
     );
   }
 
-  if (error) {
-    return (
-      <div className="page-enter">
-        <div className="alert alert-error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div><strong>Error:</strong> {error}</div>
-          <button className="btn btn-outline btn-sm" onClick={() => loadData(true)} style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const pendingOrders   = orders.filter(o => o.status === 'PENDING');
+  const assignedOrders  = orders.filter(o => o.status === 'ASSIGNED');
+  const activeRoutes    = routes.filter(r => r.status === 'IN_PROGRESS');
+  const plannedRoutes   = routes.filter(r => r.status === 'PLANNED');
 
-  if (!data) return null;
+  const displayOrders = orderTab === 'PENDING' ? pendingOrders
+                      : orderTab === 'ASSIGNED' ? assignedOrders
+                      : orders;
 
-  const { pendingOrderCount, availableDriverCount, activeRoutes, plannedRoutes } = data;
+  // Route driver name lookup
+  const driverName = (id: string) => drivers.find(d => d.id === id)?.name;
 
   return (
     <div className="page-enter">
-      {/* ── Header ── */}
+      {/* ── Page Header ── */}
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{
-                background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
-                color: '#fff',
-                fontSize: '0.65rem',
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                padding: '3px 8px',
-                borderRadius: 6,
-              }}>Dispatcher View</span>
+                background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', color: '#fff',
+                fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em',
+                textTransform: 'uppercase', padding: '3px 8px', borderRadius: 6,
+              }}>Dispatcher</span>
             </div>
             <h2 className="page-title">Live Operations Control</h2>
-            <p className="page-subtitle">Monitor active routes, dispatch planned runs, and manage the delivery queue.</p>
+            <p className="page-subtitle">Incoming orders → Assign drivers → Optimize routes → Monitor deliveries</p>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => loadData(true)}
-              disabled={refreshing}
-              title="Refresh live data"
-            >
-              {refreshing ? <><span className="spinner spinner-dark" /> Syncing…</> : '🔄 Refresh'}
-            </button>
-            {onNavigate && (
-              <button className="btn btn-primary btn-sm" onClick={() => onNavigate('routes')}>
-                ⚡ Optimize Routes
-              </button>
-            )}
-          </div>
+          <button className="btn btn-outline btn-sm" onClick={() => loadAll(true)} disabled={refreshing}>
+            {refreshing ? <><span className="spinner spinner-dark" /> Syncing…</> : '🔄 Refresh'}
+          </button>
         </div>
       </div>
 
-      {/* ── Alert: High pending queue ── */}
-      {pendingOrderCount > 5 && (
-        <div className="alert alert-warning" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <strong>📋 {pendingOrderCount} orders waiting!</strong> Run route optimization to assign them to drivers before time windows expire.
+      {/* ── KPI strip ── */}
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: 24 }}>
+        <div className="stat-card" style={{ borderLeft: '3px solid var(--red)' }}>
+          <div className="stat-label">📦 Pending Orders</div>
+          <div className="stat-value" style={{ color: pendingOrders.length > 0 ? 'var(--red)' : 'var(--green-700)' }}>
+            {pendingOrders.length}
           </div>
-          {onNavigate && (
-            <button className="btn btn-primary btn-sm" onClick={() => onNavigate('routes')}>
-              Optimize Now →
-            </button>
-          )}
+          <div className="stat-sub">{pendingOrders.length > 0 ? 'Awaiting assignment' : 'All assigned ✓'}</div>
         </div>
-      )}
-
-      {/* ── Status KPI Cards ── */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: 24 }}>
         <div className="stat-card" style={{ borderLeft: '3px solid var(--blue)' }}>
+          <div className="stat-label">📋 Assigned Orders</div>
+          <div className="stat-value" style={{ color: 'var(--blue)' }}>{assignedOrders.length}</div>
+          <div className="stat-sub">En route to customers</div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '3px solid #22c55e' }}>
           <div className="stat-label">🟢 Active Routes</div>
-          <div className="stat-value" style={{ color: 'var(--blue)' }}>{activeRoutes.length}</div>
-          <div className="stat-sub">Drivers currently on road</div>
+          <div className="stat-value" style={{ color: '#22c55e' }}>{activeRoutes.length}</div>
+          <div className="stat-sub">Drivers on road now</div>
         </div>
         <div className="stat-card" style={{ borderLeft: '3px solid var(--amber)' }}>
           <div className="stat-label">🟡 Planned Routes</div>
           <div className="stat-value amber">{plannedRoutes.length}</div>
-          <div className="stat-sub">Ready for dispatch</div>
+          <div className="stat-sub">Ready to dispatch</div>
         </div>
-        <div className="stat-card" style={{ borderLeft: '3px solid var(--red)' }}>
-          <div className="stat-label">📦 Pending Orders</div>
-          <div className="stat-value" style={{ color: pendingOrderCount > 0 ? 'var(--red)' : 'var(--green-700)' }}>
-            {pendingOrderCount}
+        <div className="stat-card" style={{ borderLeft: '3px solid #a78bfa' }}>
+          <div className="stat-label">👤 Drivers</div>
+          <div className="stat-value" style={{ color: '#7c3aed' }}>{drivers.length}</div>
+          <div className="stat-sub">In fleet registry</div>
+        </div>
+      </div>
+
+      {/* ── Main two-column layout ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,420px)', gap: 20, alignItems: 'start' }}>
+
+        {/* Left: Orders list */}
+        <div>
+          {/* Section header + tabs */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontWeight: 700, fontSize: '1rem', margin: 0 }}>📦 Incoming Orders</h3>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['PENDING', 'ASSIGNED', 'ALL'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setOrderTab(tab)}
+                  style={{
+                    padding: '4px 12px', border: 'none', borderRadius: 6,
+                    cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
+                    fontFamily: 'var(--font-sans)',
+                    background: orderTab === tab ? (tab === 'PENDING' ? '#dc2626' : tab === 'ASSIGNED' ? '#2563eb' : 'var(--green-700)') : 'var(--surface-2)',
+                    color: orderTab === tab ? '#fff' : 'var(--text-2)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {tab === 'PENDING' ? `Pending (${pendingOrders.length})` : tab === 'ASSIGNED' ? `Assigned (${assignedOrders.length})` : `All (${orders.length})`}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="stat-sub">{pendingOrderCount > 0 ? 'Need route assignment' : 'All orders assigned ✓'}</div>
-        </div>
-        <div className="stat-card" style={{ borderLeft: '3px solid var(--green-700)' }}>
-          <div className="stat-label">🧑‍✈️ Available Drivers</div>
-          <div className="stat-value green">{availableDriverCount}</div>
-          <div className="stat-sub">Ready to be dispatched</div>
-        </div>
-      </div>
 
-      {/* ── Main area: Route lists ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-        {/* Tab bar */}
-        <div style={{
-          display: 'flex',
-          gap: 2,
-          borderBottom: '2px solid var(--border)',
-          marginBottom: 20,
-        }}>
-          {(['active', 'planned'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                padding: '10px 20px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                fontWeight: activeTab === tab ? 700 : 400,
-                color: activeTab === tab ? 'var(--primary)' : 'var(--text-3)',
-                borderBottom: activeTab === tab ? '2px solid var(--primary)' : '2px solid transparent',
-                marginBottom: -2,
-                transition: 'all 0.15s',
-              }}
-            >
-              {tab === 'active'
-                ? `🟢 Active Routes (${activeRoutes.length})`
-                : `🟡 Planned Routes (${plannedRoutes.length})`}
-            </button>
-          ))}
-        </div>
+          {pendingOrders.length > 0 && orderTab === 'PENDING' && (
+            <div className="alert alert-warning" style={{ marginBottom: 12, fontSize: '0.83rem' }}>
+              ⚠️ <strong>{pendingOrders.length} orders</strong> need route assignment. Use the optimization panel on the right →
+            </div>
+          )}
 
-        {/* Active Routes Panel */}
-        {activeTab === 'active' && (
-          <>
-            {activeRoutes.length === 0 ? (
-              <div className="empty-state" style={{ padding: '40px 20px' }}>
-                <p style={{ fontSize: '2rem', marginBottom: 8 }}>🛣️</p>
-                <p style={{ fontWeight: 600, marginBottom: 4 }}>No Active Routes Right Now</p>
-                <p style={{ color: 'var(--text-3)', fontSize: '0.875rem' }}>
-                  All drivers are idle. {plannedRoutes.length > 0 ? 'Start a planned route to dispatch.' : 'Run route optimization to create routes.'}
-                </p>
-                {onNavigate && plannedRoutes.length > 0 && (
-                  <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setActiveTab('planned')}>
-                    View Planned Routes →
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-                {activeRoutes.map(route => (
-                  <ActiveRouteCard
-                    key={route.id}
-                    route={route}
-                    onView={() => onNavigate?.('routes')}
-                  />
+          {displayOrders.length === 0 ? (
+            <div className="empty-state" style={{ padding: '36px 20px' }}>
+              <p style={{ fontSize: '1.8rem', marginBottom: 8 }}>📦</p>
+              <p style={{ fontWeight: 600, marginBottom: 4 }}>
+                {orderTab === 'PENDING' ? 'No Pending Orders' : orderTab === 'ASSIGNED' ? 'No Assigned Orders' : 'No Orders'}
+              </p>
+              <p style={{ color: 'var(--text-3)', fontSize: '0.85rem' }}>
+                {orderTab === 'PENDING' ? 'All orders have been assigned to drivers.' : 'Run optimization to assign orders.'}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {displayOrders.map(o => {
+                // find which route/driver this order is in
+                const stop = routes.flatMap(r => r.stops ?? []).find(s => s.orderId === o.id);
+                const routeForOrder = stop ? routes.find(r => r.id === (stop as any).routeId) : null;
+
+                return (
+                  <div key={o.id} style={{
+                    padding: '12px 14px',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    borderLeft: `4px solid ${o.priority === 'HIGH' ? '#dc2626' : o.priority === 'MEDIUM' ? '#d97706' : '#6b7280'}`,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>{o.customerName}</span>
+                          <PriorityBadge p={o.priority} />
+                          <StatusBadge s={o.status} />
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>📍 {o.address}</div>
+                        <div style={{ display: 'flex', gap: 12, marginTop: 5, fontSize: '0.75rem', color: 'var(--text-3)', flexWrap: 'wrap' }}>
+                          <span>⚖️ {o.weightKg} kg</span>
+                          {o.latestDelivery && (
+                            <span style={{ color: o.timeWindowStatus === 'VIOLATED' ? '#dc2626' : o.timeWindowStatus === 'AT_RISK' ? '#d97706' : 'inherit', fontWeight: o.timeWindowStatus && o.timeWindowStatus !== 'NONE' ? 600 : 400 }}>
+                              🕐 Deadline: {new Date(o.latestDelivery).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                              {o.timeWindowStatus === 'AT_RISK' && ' ⚠️'}
+                              {o.timeWindowStatus === 'VIOLATED' && ' ❌'}
+                            </span>
+                          )}
+                          {o.status === 'ASSIGNED' && driverName(routes.find(r => r.stops?.some(s => s.orderId === o.id))?.driverId ?? '') && (
+                            <span style={{ color: '#0284c7', fontWeight: 600 }}>
+                              👤 {driverName(routes.find(r => r.stops?.some(s => s.orderId === o.id))?.driverId ?? '')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', fontFamily: 'monospace', flexShrink: 0 }}>
+                        #{o.id.slice(-6).toUpperCase()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Active routes summary */}
+          {activeRoutes.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <h3 style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 12 }}>🟢 Active Routes (On Road Now)</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {activeRoutes.map(r => (
+                  <div key={r.id} style={{
+                    padding: '12px 14px',
+                    background: 'rgba(34,197,94,0.06)',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: 10,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>👤 {r.driver?.name ?? driverName(r.driverId) ?? 'Driver'}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginTop: 2 }}>
+                        🏭 {r.warehouse?.name ?? 'Warehouse'} · {r._count?.stops ?? r.stops?.length ?? 0} stops · {fmtDuration(r.estimatedDurationMin)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <StatusBadge s={r.status} />
+                      {onNavigate && (
+                        <button className="btn btn-outline btn-sm" onClick={() => onNavigate('routes')}>
+                          View →
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
-            )}
-          </>
-        )}
+            </div>
+          )}
+        </div>
 
-        {/* Planned Routes Panel */}
-        {activeTab === 'planned' && (
-          <>
-            {plannedRoutes.length === 0 ? (
-              <div className="empty-state" style={{ padding: '40px 20px' }}>
-                <p style={{ fontSize: '2rem', marginBottom: 8 }}>📋</p>
-                <p style={{ fontWeight: 600, marginBottom: 4 }}>No Planned Routes</p>
-                <p style={{ color: 'var(--text-3)', fontSize: '0.875rem' }}>
-                  {pendingOrderCount > 0
-                    ? `${pendingOrderCount} orders are pending. Run route optimization to create routes.`
-                    : 'All routes have been dispatched or are currently in progress.'}
-                </p>
-                {onNavigate && pendingOrderCount > 0 && (
-                  <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => onNavigate('routes')}>
-                    ⚡ Optimize Routes
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-                {plannedRoutes.map(route => (
-                  <PlannedRouteCard
-                    key={route.id}
-                    route={route}
-                    onView={() => onNavigate?.('routes')}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+        {/* Right: Optimization panel */}
+        <div style={{ position: 'sticky', top: 20 }}>
+          <OptimizePanel
+            warehouses={warehouses}
+            vehicles={vehicles}
+            drivers={drivers}
+            pendingCount={pendingOrders.length}
+            onOptimized={handleOptimized}
+          />
 
-      {/* ── Quick Links bottom bar ── */}
-      <div style={{
-        marginTop: 28,
-        padding: '16px 20px',
-        background: 'var(--surface-2)',
-        borderRadius: 12,
-        border: '1px solid var(--border)',
-        display: 'flex',
-        gap: 12,
-        flexWrap: 'wrap',
-        alignItems: 'center',
-      }}>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-3)', fontWeight: 600, marginRight: 4 }}>Quick Access:</span>
-        {onNavigate && (
-          <>
-            <button className="btn btn-outline btn-sm" onClick={() => onNavigate('orders')}>📦 Pending Orders</button>
-            <button className="btn btn-outline btn-sm" onClick={() => onNavigate('drivers')}>👤 Driver Status</button>
-            <button className="btn btn-outline btn-sm" onClick={() => onNavigate('routes')}>🗺️ All Routes</button>
-          </>
-        )}
+          {/* Optimization result */}
+          {optResult && (
+            <OptimizationResultPanel
+              result={optResult}
+              drivers={drivers}
+              warehouses={warehouses}
+              onClose={() => setOptResult(null)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
