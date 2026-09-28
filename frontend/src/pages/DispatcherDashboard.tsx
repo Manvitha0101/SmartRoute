@@ -52,10 +52,10 @@ interface OptResult {
   warning: string | null;
 }
 
-function OptimizationResultPanel({ result, drivers, warehouses, onClose }: {
+function OptimizationResultPanel({ result, drivers, onClose }: {
   result: OptResult;
   drivers: Driver[];
-  warehouses: Warehouse[];
+  warehouses?: Warehouse[];
   onClose: () => void;
 }) {
   const [expandedRoute, setExpandedRoute] = useState<string | null>(
@@ -522,9 +522,6 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {displayOrders.map(o => {
-                // find which route/driver this order is in
-                const stop = routes.flatMap(r => r.stops ?? []).find(s => s.orderId === o.id);
-                const routeForOrder = stop ? routes.find(r => r.id === (stop as any).routeId) : null;
 
                 return (
                   <div key={o.id} style={{
