@@ -20,6 +20,14 @@ const DEMO_PROFILES = [
     desc: 'Executive overview — KPIs, fleet analytics, warehouses',
     color: '#8b5cf6',
   },
+  {
+    label: 'Driver',
+    email: 'driver@smartroute.io',
+    password: 'Password@123',
+    icon: '🛣️',
+    desc: 'Suresh Reddy — view assigned stops and start trips',
+    color: '#059669',
+  },
 ];
 
 export default function LoginPage() {

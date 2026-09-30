@@ -32,7 +32,6 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      // Allow any .vercel.app domain, localhost, or custom domain
       if (
         origin.endsWith(".vercel.app") ||
         origin.includes("localhost") ||
@@ -41,7 +40,7 @@ app.use(
       ) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
   })

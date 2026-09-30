@@ -10,22 +10,36 @@ type Page = 'dashboard' | 'orders' | 'routes' | 'drivers';
 
 function AppShell() {
   const { isLoggedIn, user, logout } = useAuth();
-  const [page, setPage] = useState<Page>('dashboard');
+  const isDriver = user?.role === 'DRIVER';
+  const [page, setPage] = useState<Page>(isDriver ? 'drivers' : 'dashboard');
 
   if (!isLoggedIn) return <LoginPage />;
 
-  const nav = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'orders',    label: 'Orders',    icon: '📦' },
-    { id: 'routes',    label: 'Routes',    icon: '🗺️' },
-    { id: 'drivers',   label: 'Drivers',   icon: '🚚' },
-  ] as const;
+  const staffNav = [
+    { id: 'dashboard' as const, label: 'Dashboard', icon: '📊' },
+    { id: 'orders' as const,    label: 'Orders',    icon: '📦' },
+    { id: 'routes' as const,    label: 'Routes',    icon: '🗺️' },
+    { id: 'drivers' as const,   label: 'Drivers',   icon: '🚚' },
+  ];
+
+  const driverNav = [
+    { id: 'drivers' as const, label: 'My Routes', icon: '🚚' },
+  ];
+
+  const nav = isDriver ? driverNav : staffNav;
+  const activePage = isDriver ? 'drivers' : page;
+
+  const roleColor =
+    user?.role === 'ADMIN'
+      ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
+      : user?.role === 'DRIVER'
+        ? 'linear-gradient(135deg,#059669,#047857)'
+        : 'linear-gradient(135deg,#0ea5e9,#0284c7)';
 
   const initials = user?.email.slice(0, 2).toUpperCase() ?? '??';
 
   return (
     <div className="app-shell">
-      {/* ── Sidebar ── */}
       <aside className="sidebar">
         <div className="sidebar-logo">
           <h1>SmartRoute</h1>
@@ -36,7 +50,7 @@ function AppShell() {
           {nav.map(n => (
             <button
               key={n.id}
-              className={`nav-item ${page === n.id ? 'active' : ''}`}
+              className={`nav-item ${activePage === n.id ? 'active' : ''}`}
               onClick={() => setPage(n.id)}
             >
               <span className="nav-icon">{n.icon}</span>
@@ -57,9 +71,7 @@ function AppShell() {
                   textTransform: 'uppercase',
                   padding: '1px 6px',
                   borderRadius: 4,
-                  background: user?.role === 'ADMIN'
-                    ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
-                    : 'linear-gradient(135deg,#0ea5e9,#0284c7)',
+                  background: roleColor,
                   color: '#fff',
                 }}>
                   {user?.role ?? 'USER'}
@@ -72,12 +84,17 @@ function AppShell() {
         </div>
       </aside>
 
-      {/* ── Main content ── */}
       <main className="main-content">
-        {page === 'dashboard' && <DashboardPage onNavigate={setPage} />}
-        {page === 'orders'    && <OrdersPage />}
-        {page === 'routes'    && <RoutesPage />}
-        {page === 'drivers'   && <DriverPage />}
+        {isDriver ? (
+          <DriverPage />
+        ) : (
+          <>
+            {page === 'dashboard' && <DashboardPage onNavigate={setPage} />}
+            {page === 'orders'    && <OrdersPage />}
+            {page === 'routes'    && <RoutesPage />}
+            {page === 'drivers'   && <DriverPage />}
+          </>
+        )}
       </main>
     </div>
   );

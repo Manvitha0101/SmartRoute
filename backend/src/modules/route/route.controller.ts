@@ -4,6 +4,11 @@ import { successResponse } from "../../utils/apiResponse";
 import * as routeService from "./route.service";
 import type { OptimizeRouteInput, UpdateStopStatusInput } from "./route.schemas";
 
+const actorOf = (req: Request) =>
+  req.user
+    ? { id: req.user.id, role: req.user.role }
+    : undefined;
+
 export const optimizeRoutes = asyncHandler(
   async (req: Request, res: Response) => {
     const result = await routeService.optimize(req.body as OptimizeRouteInput);
@@ -12,36 +17,36 @@ export const optimizeRoutes = asyncHandler(
 );
 
 export const getAllRoutes = asyncHandler(
-  async (_req: Request, res: Response) => {
-    const routes = await routeService.getAllRoutes();
+  async (req: Request, res: Response) => {
+    const routes = await routeService.getAllRoutes(actorOf(req));
     res.status(200).json(successResponse(routes));
   }
 );
 
 export const getRouteById = asyncHandler(
   async (req: Request, res: Response) => {
-    const route = await routeService.getRouteById(req.params.id);
+    const route = await routeService.getRouteById(req.params.id, actorOf(req));
     res.status(200).json(successResponse(route));
   }
 );
 
 export const startRoute = asyncHandler(
   async (req: Request, res: Response) => {
-    const route = await routeService.startRoute(req.params.id);
+    const route = await routeService.startRoute(req.params.id, actorOf(req));
     res.status(200).json(successResponse(route));
   }
 );
 
 export const completeRoute = asyncHandler(
   async (req: Request, res: Response) => {
-    const route = await routeService.completeRoute(req.params.id);
+    const route = await routeService.completeRoute(req.params.id, actorOf(req));
     res.status(200).json(successResponse(route));
   }
 );
 
 export const cancelRoute = asyncHandler(
   async (req: Request, res: Response) => {
-    const result = await routeService.cancelRoute(req.params.id);
+    const result = await routeService.cancelRoute(req.params.id, actorOf(req));
     res.status(200).json(successResponse(result));
   }
 );
@@ -49,7 +54,12 @@ export const cancelRoute = asyncHandler(
 export const updateStopStatus = asyncHandler(
   async (req: Request, res: Response) => {
     const { id, stopId } = req.params;
-    const result = await routeService.updateStopStatus(id, stopId, req.body as UpdateStopStatusInput);
+    const result = await routeService.updateStopStatus(
+      id,
+      stopId,
+      req.body as UpdateStopStatusInput,
+      actorOf(req)
+    );
     res.status(200).json(successResponse(result));
   }
 );

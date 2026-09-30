@@ -19,6 +19,11 @@ export const getDriverById = asyncHandler(async (req: Request, res: Response) =>
   res.status(200).json(successResponse(driver));
 });
 
+export const getMyDriverProfile = asyncHandler(async (req: Request, res: Response) => {
+  const driver = await driverService.getDriverByUserId(req.user!.id);
+  res.status(200).json(successResponse(driver));
+});
+
 export const updateDriver = asyncHandler(async (req: Request, res: Response) => {
   const driver = await driverService.updateDriver(req.params.id, req.body as UpdateDriverInput);
   res.status(200).json(successResponse(driver));

@@ -23,6 +23,7 @@ export type RouteRecord = {
   updatedAt: Date;
   driver: { name: string; phone: string };
   vehicle: { plateNumber: string; capacityKg: number; type: string };
+  warehouse?: { name: string; latitude: number; longitude: number };
   _count: { stops: number };
 };
 
@@ -124,6 +125,34 @@ export const findAllRoutes = async (): Promise<RouteRecord[]> => {
       updatedAt: true,
       driver: { select: { name: true, phone: true } },
       vehicle: { select: { plateNumber: true, capacityKg: true, type: true } },
+      warehouse: { select: { name: true, latitude: true, longitude: true } },
+      _count: { select: { stops: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+};
+
+export const findRoutesByDriverId = async (
+  driverId: string
+): Promise<RouteRecord[]> => {
+  return prisma.route.findMany({
+    where: { driverId },
+    select: {
+      id: true,
+      driverId: true,
+      vehicleId: true,
+      warehouseId: true,
+      status: true,
+      totalDistanceKm: true,
+      estimatedDurationMin: true,
+      plannedDepartureAt: true,
+      actualDepartureAt: true,
+      completedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      driver: { select: { name: true, phone: true } },
+      vehicle: { select: { plateNumber: true, capacityKg: true, type: true } },
+      warehouse: { select: { name: true, latitude: true, longitude: true } },
       _count: { select: { stops: true } },
     },
     orderBy: { createdAt: "desc" },

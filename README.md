@@ -1,134 +1,129 @@
-# 🚛 SmartRoute —  Delivery Route Optimization and Fleet Management
+﻿# SmartRoute — Delivery Route Optimization & Fleet Management
 
-SmartRoute is a full-stack web application that helps logistics companies **optimize delivery routes**, **manage drivers**, and **track orders** in real time.
+Full-stack fleet dispatch demo: optimize multi-stop delivery routes with a **capacity-aware nearest-neighbor VRP heuristic**, manage orders/drivers, and view routes on a map.
 
-🔗 **Live Demo:** [smartroute-app-v1.vercel.app](https://smartroute-app-v1.vercel.app)
-
----
-
-## ✨ Features
-
-- **One-click demo login** — Instantly access Dispatcher or Admin view
-- **Dispatcher Dashboard** — View incoming orders, assign drivers, and optimize routes
-- **Route Optimization Engine** — Automatically assigns orders to drivers using a nearest-neighbor algorithm
-- **Driver Portal** — Drivers see their assigned routes with stop-by-stop timelines
-- **Admin Dashboard** — Executive KPIs, fleet analytics, and warehouse performance
-- **Real-time order tracking** — Order statuses update as routes progress
+**Live demo:** [smartroute-app-v1.vercel.app](https://smartroute-app-v1.vercel.app)
 
 ---
 
-## 🖥️ Tech Stack
+## What it does
+
+- **Dispatcher** — view pending orders, pick vehicles/drivers, run optimization, see distance savings vs a random baseline
+- **Route map** — warehouse + numbered stops on OpenStreetMap (Leaflet)
+- **Driver login** — `driver@smartroute.io` sees only their assigned routes and can start/complete trips
+- **Admin** — KPI summary and warehouse load (admin-only analytics)
+
+This is a **portfolio / campus project**, not a production TMS. Distance uses Haversine (crow-flies), not road networks.
+
+---
+
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React + TypeScript + Vite |
+| Frontend | React + TypeScript + Vite + Leaflet |
 | Backend | Node.js + Express + TypeScript |
 | Database | PostgreSQL + Prisma ORM |
-| Deployment | Vercel (frontend) · Render (backend + DB) |
+| Auth | JWT access tokens + httpOnly refresh cookies, role RBAC |
+| Deploy | Vercel (frontend) · Render (backend + DB) |
 
 ---
 
-## 🚀 Try the Live App
+## Try the live app
 
-1. Go to **[smartroute-app-v1.vercel.app](https://smartroute-app-v1.vercel.app)**
-2. Click **🚚 Login as Dispatcher** to manage orders and optimize routes
-3. Click **⚡ Login as Admin** to see KPIs and analytics
-
-> No sign-up needed. Demo accounts are pre-loaded with realistic data.
-
----
-
-## 🔄 Demo Workflow
-
-```
-Login as Dispatcher
-  → View Pending Orders (Hyderabad warehouse)
-  → Select vehicles + drivers
-  → Click "Run Optimization"
-  → See optimized routes with stop sequence and ETAs
-  → Go to Driver Portal → See Suresh Reddy's active route
-```
+1. Open [smartroute-app-v1.vercel.app](https://smartroute-app-v1.vercel.app)
+2. **Login as Dispatcher** → pending Hyderabad orders → Run Optimization → Map & Stops
+3. **Login as Driver** → Suresh Reddy's assigned routes
+4. **Login as Admin** → KPIs
 
 ---
 
-## 🏗️ Project Structure
-
-```
-SmartRoute/
-├── frontend/          # React app (Vite + TypeScript)
-│   └── src/
-│       ├── pages/     # LoginPage, DispatcherDashboard, AdminDashboard, DriverPage
-│       ├── api/       # API client functions
-│       └── types/     # Shared TypeScript interfaces
-│
-└── backend/           # Express API (TypeScript)
-    ├── src/
-    │   ├── modules/   # auth, order, route, driver, vehicle, warehouse, analytics
-    │   └── prisma/    # DB client
-    └── prisma/
-        ├── schema.prisma   # Database schema
-        └── seed.ts         # Demo data seeder
-```
-
----
-
-## 🛠️ Run Locally
-
-### Prerequisites
-- Node.js 18+
-- PostgreSQL running on port 5433
-
-### Backend
-```bash
-cd backend
-npm install
-cp .env.example .env      # fill in your DATABASE_URL and JWT secrets
-npx prisma migrate dev    # run migrations
-npm run db:seed           # load demo data
-npm run dev               # starts on http://localhost:3000
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-cp .env.example .env      # set VITE_API_URL=http://localhost:3000/api/v1
-npm run dev               # starts on http://localhost:5173
-```
-
----
-
-## 👤 Demo Accounts
+## Demo accounts
 
 | Role | Email | Password |
 |---|---|---|
 | Dispatcher | dispatcher@smartroute.io | Password@123 |
 | Admin | admin@smartroute.io | Password@123 |
+| Driver | driver@smartroute.io | Password@123 |
 
 ---
 
-## 📦 Key API Endpoints
+## Algorithm (honest)
 
-| Method | Endpoint | Description |
+**Nearest-neighbor VRP heuristic** with vehicle capacity:
+
+1. Sort orders by priority, then earliest deadline  
+2. For each vehicle, repeatedly pick the closest unassigned order that fits remaining kg  
+3. ETA ≈ Haversine km ÷ 30 km/h  
+
+Also reports **greedy vs random first-fit** average distance (25–50 trials) so you can quote a savings %.
+
+Offline benchmark (no DB):
+
+```bash
+cd backend
+npm run benchmark
+```
+
+---
+
+## Run locally
+
+**Prerequisites:** Node 18+, PostgreSQL (or `docker compose up -d` for PostGIS on port 5433)
+
+### Backend
+
+```bash
+cd backend
+npm install
+cp .env.example .env      # DATABASE_URL, JWT secrets
+npx prisma migrate deploy
+npm run db:seed
+npm run dev               # http://localhost:3000
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+cp .env.example .env      # VITE_API_URL=http://localhost:3000/api/v1
+npm run dev               # http://localhost:5173
+```
+
+---
+
+## Key API endpoints
+
+| Method | Endpoint | Who |
 |---|---|---|
-| POST | `/api/v1/auth/login` | Login with email + password |
-| GET | `/api/v1/orders` | List all orders (filter by status) |
-| POST | `/api/v1/routes/optimize` | Run route optimization |
-| GET | `/api/v1/drivers` | List all drivers with their routes |
-| GET | `/api/v1/analytics/summary` | Admin KPI summary |
-| GET | `/health` | Backend health check |
+| POST | /api/v1/auth/login | Public |
+| GET | /api/v1/orders | Admin, Dispatcher |
+| POST | /api/v1/routes/optimize | Admin, Dispatcher |
+| GET | /api/v1/routes | Admin, Dispatcher, Driver (own routes) |
+| GET | /api/v1/drivers/me | Linked driver profile |
+| GET | /api/v1/analytics/summary | Admin only |
+| GET | /health | Public |
 
 ---
 
+## Project structure
 
-## 🗄️ Database Schema (Key Models)
+```
+SmartRoute/
+├── frontend/          # React + Vite + Leaflet
+│   └── src/
+│       ├── pages/     # Login, dashboards, Orders, Routes, Driver
+│       ├── components/RouteMap.tsx
+│       └── api/
+└── backend/
+    ├── src/modules/   # auth, order, route, driver, vehicle, warehouse, analytics
+    ├── scripts/benchmark-optimizer.ts
+    └── prisma/        # schema + seed
+```
 
-- **User** — Admin or Dispatcher login
-- **Warehouse** — Origin hub for deliveries (7 South Indian cities)
-- **Vehicle** — Trucks, vans, motorcycles with capacity
-- **Driver** — Assigned to vehicles, owns routes
-- **Order** — Customer delivery with address, weight, priority, time window
-- **Route** — Optimized path assigned to a driver + vehicle
-- **RouteStop** — Individual delivery stop within a route
+---
 
+## Resume one-liner
 
+> Full-stack fleet dispatch system with capacity-aware nearest-neighbor VRP, JWT role RBAC (Admin / Dispatcher / Driver), Leaflet route maps, and measured distance savings vs random assignment (React, Node, Prisma, Postgres).

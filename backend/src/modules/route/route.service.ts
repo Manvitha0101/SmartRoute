@@ -7,6 +7,34 @@ import * as routeRepo from "./route.repository";
 import { optimizeRoutes } from "./route.optimizer";
 import type { OptimizeRouteInput, UpdateStopStatusInput } from "./route.schemas";
 
+type Actor = { id: string; role: "ADMIN" | "DISPATCHER" | "DRIVER" };
+
+const resolveDriverIdForUser = async (userId: string): Promise<string> => {
+  const { prisma } = await import("../../prisma/client");
+  const driver = await prisma.driver.findFirst({
+    where: { userId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!driver) {
+    throw AppError.forbidden("No driver profile linked to this account");
+  }
+  return driver.id;
+};
+
+const assertRouteAccess = async (routeId: string, actor?: Actor) => {
+  const route = await routeRepo.findRouteById(routeId);
+  if (!route) {
+    throw AppError.notFound("Route not found", "ROUTE_NOT_FOUND");
+  }
+  if (actor?.role === "DRIVER") {
+    const driverId = await resolveDriverIdForUser(actor.id);
+    if (route.driverId !== driverId) {
+      throw AppError.forbidden("You can only access your own routes");
+    }
+  }
+  return route;
+};
+
 // ─── Optimize ──────────────────────────────────────────────────────────────────
 
 export const optimize = async (data: OptimizeRouteInput) => {
@@ -120,6 +148,7 @@ export const optimize = async (data: OptimizeRouteInput) => {
     routes: createdRoutes,
     unassignedOrderCount: result.unassignedOrderIds.length,
     unassignedOrderIds: result.unassignedOrderIds,
+    comparison: result.comparison,
     warning:
       result.unassignedOrderIds.length > 0
         ? `${result.unassignedOrderIds.length} order(s) could not be assigned — vehicles may be at full capacity. Add more vehicles or increase capacity.`
@@ -129,22 +158,22 @@ export const optimize = async (data: OptimizeRouteInput) => {
 
 // ─── Read ──────────────────────────────────────────────────────────────────────
 
-export const getAllRoutes = async () => {
+export const getAllRoutes = async (actor?: Actor) => {
+  if (actor?.role === "DRIVER") {
+    const driverId = await resolveDriverIdForUser(actor.id);
+    return routeRepo.findRoutesByDriverId(driverId);
+  }
   return routeRepo.findAllRoutes();
 };
 
-export const getRouteById = async (id: string) => {
-  const route = await routeRepo.findRouteById(id);
-  if (!route) {
-    throw AppError.notFound("Route not found", "ROUTE_NOT_FOUND");
-  }
-  return route;
+export const getRouteById = async (id: string, actor?: Actor) => {
+  return assertRouteAccess(id, actor);
 };
 
 // ─── Status transitions ────────────────────────────────────────────────────────
 
-export const startRoute = async (id: string) => {
-  const route = await getRouteById(id);
+export const startRoute = async (id: string, actor?: Actor) => {
+  const route = await assertRouteAccess(id, actor);
 
   if (route.status !== "PLANNED") {
     throw AppError.badRequest(
@@ -158,8 +187,8 @@ export const startRoute = async (id: string) => {
   });
 };
 
-export const completeRoute = async (id: string) => {
-  const route = await getRouteById(id);
+export const completeRoute = async (id: string, actor?: Actor) => {
+  const route = await assertRouteAccess(id, actor);
 
   if (route.status !== "IN_PROGRESS") {
     throw AppError.badRequest(
@@ -173,8 +202,8 @@ export const completeRoute = async (id: string) => {
   });
 };
 
-export const cancelRoute = async (id: string) => {
-  const route = await getRouteById(id);
+export const cancelRoute = async (id: string, actor?: Actor) => {
+  const route = await assertRouteAccess(id, actor);
 
   if (route.status !== "PLANNED") {
     throw AppError.badRequest(
@@ -204,9 +233,10 @@ export const cancelRoute = async (id: string) => {
 export const updateStopStatus = async (
   routeId: string,
   stopId: string,
-  data: UpdateStopStatusInput
+  data: UpdateStopStatusInput,
+  actor?: Actor
 ) => {
-  const route = await getRouteById(routeId);
+  const route = await assertRouteAccess(routeId, actor);
   const stop = route.stops.find((s) => s.id === stopId);
   if (!stop) {
     throw AppError.notFound("Stop not found on this route", "STOP_NOT_FOUND");

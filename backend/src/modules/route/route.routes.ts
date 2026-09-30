@@ -4,35 +4,36 @@
 
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate";
+import { authorize } from "../../middleware/authorize";
 import { validateBody } from "../../middleware/validate";
 import { optimizeRouteSchema, updateStopStatusSchema } from "./route.schemas";
 import * as routeController from "./route.controller";
 
 const router = Router();
+const staff = authorize("ADMIN", "DISPATCHER");
+const staffOrDriver = authorize("ADMIN", "DISPATCHER", "DRIVER");
 
-// Collection + optimize action
-router.get("/", authenticate, routeController.getAllRoutes);
+router.get("/", authenticate, staffOrDriver, routeController.getAllRoutes);
 router.post(
   "/optimize",
   authenticate,
+  staff,
   validateBody(optimizeRouteSchema),
   routeController.optimizeRoutes
 );
 
-// Stop actions — before /:id
 router.patch(
   "/:id/stops/:stopId",
   authenticate,
+  staffOrDriver,
   validateBody(updateStopStatusSchema),
   routeController.updateStopStatus
 );
 
-// Sub-actions — MUST be before /:id
-router.patch("/:id/start",    authenticate, routeController.startRoute);
-router.patch("/:id/complete", authenticate, routeController.completeRoute);
-router.patch("/:id/cancel",   authenticate, routeController.cancelRoute);
+router.patch("/:id/start", authenticate, staffOrDriver, routeController.startRoute);
+router.patch("/:id/complete", authenticate, staffOrDriver, routeController.completeRoute);
+router.patch("/:id/cancel", authenticate, staff, routeController.cancelRoute);
 
-// Single resource
-router.get("/:id", authenticate, routeController.getRouteById);
+router.get("/:id", authenticate, staffOrDriver, routeController.getRouteById);
 
 export default router;

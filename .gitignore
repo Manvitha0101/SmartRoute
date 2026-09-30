@@ -37,3 +37,14 @@ eta-service/app/ml/model.pkl
 
 # ─── Docker ───────────────────────────────────────────────────────────────────
 # Keep docker-compose.yml tracked — needed for local dev setup
+
+# ─── Agent / IDE skill dumps (not part of the product) ────────────────────────
+backend/.agents/
+backend/.claude/
+backend/.windsurf/
+**/skills-lock.json
+
+# ─── Legacy prototypes ────────────────────────────────────────────────────────
+backend/server.js
+backend/prismaClient.js
+backend/test-*.js

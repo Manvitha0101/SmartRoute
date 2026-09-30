@@ -24,7 +24,7 @@ import { AppError } from "../utils/AppError";
 interface JwtAccessPayload {
   id: string;
   email: string;
-  role: "ADMIN" | "DISPATCHER";
+  role: "ADMIN" | "DISPATCHER" | "DRIVER";
 }
 
 export const authenticate = (

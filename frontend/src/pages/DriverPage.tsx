@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Driver, Route } from '../types';
 import * as api from '../api';
 import { ApiError } from '../api/client';
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
+import { useAuth } from '../context/AuthContext';
+import RouteMap from '../components/RouteMap';
 
 function fmtDuration(min: number | null) {
   if (!min) return '—';
@@ -44,16 +44,24 @@ function PriorityBadge({ p }: { p: string }) {
   );
 }
 
-// ── Route Detail Card ──────────────────────────────────────────────────────────
-
-function RouteDetailCard({ route, onAction, actionLoading }: {
+function RouteDetailCard({ route, onAction, actionLoading, canCancel }: {
   route: Route;
   onAction: (routeId: string, action: 'start' | 'complete' | 'cancel') => void;
   actionLoading: boolean;
+  canCancel: boolean;
 }) {
   const stops = route.stops ?? [];
   const completed = stops.filter(s => s.status === 'COMPLETED').length;
   const progressPct = stops.length > 0 ? Math.round((completed / stops.length) * 100) : 0;
+  const mapStops = stops
+    .filter(s => s.order?.latitude != null && s.order?.longitude != null)
+    .map(s => ({
+      sequence: s.stopSequence,
+      latitude: s.order!.latitude,
+      longitude: s.order!.longitude,
+      label: s.order?.customerName ?? `Stop ${s.stopSequence}`,
+      address: s.order?.address,
+    }));
 
   return (
     <div style={{
@@ -62,7 +70,6 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
       borderRadius: 14,
       overflow: 'hidden',
     }}>
-      {/* Route Header */}
       <div style={{
         padding: '16px 20px',
         background: route.status === 'IN_PROGRESS'
@@ -81,33 +88,33 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
               </span>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: '0.85rem', color: 'var(--text-2)', flexWrap: 'wrap' }}>
-              <span>🏭 {route.warehouse?.name ?? 'Warehouse'}</span>
-              <span>🚗 {route.vehicle?.plateNumber ?? 'Vehicle'} ({route.vehicle?.type ?? ''})</span>
+              <span>{route.warehouse?.name ?? 'Warehouse'}</span>
+              <span>{route.vehicle?.plateNumber ?? 'Vehicle'} ({route.vehicle?.type ?? ''})</span>
             </div>
           </div>
-          {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8 }}>
             {route.status === 'PLANNED' && (
               <>
                 <button className="btn btn-primary btn-sm" onClick={() => onAction(route.id, 'start')} disabled={actionLoading}>
-                  {actionLoading ? <span className="spinner" /> : '🚀 Start Trip'}
+                  {actionLoading ? <span className="spinner" /> : 'Start Trip'}
                 </button>
-                <button className="btn btn-outline btn-sm" onClick={() => onAction(route.id, 'cancel')} disabled={actionLoading}
-                  style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
-                  Cancel
-                </button>
+                {canCancel && (
+                  <button className="btn btn-outline btn-sm" onClick={() => onAction(route.id, 'cancel')} disabled={actionLoading}
+                    style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
+                    Cancel
+                  </button>
+                )}
               </>
             )}
             {route.status === 'IN_PROGRESS' && (
               <button className="btn btn-primary btn-sm" onClick={() => onAction(route.id, 'complete')} disabled={actionLoading}
                 style={{ background: 'var(--green-700)' }}>
-                {actionLoading ? <span className="spinner" /> : '✅ Mark Complete'}
+                {actionLoading ? <span className="spinner" /> : 'Mark Complete'}
               </button>
             )}
           </div>
         </div>
 
-        {/* Stats row */}
         <div style={{ display: 'flex', gap: 20, marginTop: 12, flexWrap: 'wrap' }}>
           {[
             { label: 'Stops', value: `${stops.length}` },
@@ -124,7 +131,6 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
           ))}
         </div>
 
-        {/* Progress bar (only for IN_PROGRESS) */}
         {route.status === 'IN_PROGRESS' && stops.length > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 4 }}>
@@ -142,7 +148,20 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
         )}
       </div>
 
-      {/* Stops list */}
+      {(route.warehouse || mapStops.length > 0) && (
+        <div style={{ padding: '12px 16px 0' }}>
+          <RouteMap
+            warehouse={route.warehouse ? {
+              latitude: route.warehouse.latitude,
+              longitude: route.warehouse.longitude,
+              name: route.warehouse.name,
+            } : null}
+            stops={mapStops}
+            height={220}
+          />
+        </div>
+      )}
+
       {stops.length > 0 ? (
         <div style={{ padding: '16px 20px' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
@@ -154,7 +173,6 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
               const isFailed = stop.status === 'FAILED';
               return (
                 <div key={stop.id} style={{ display: 'flex', gap: 0 }}>
-                  {/* Timeline connector */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginRight: 12, flexShrink: 0 }}>
                     <div style={{
                       width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
@@ -169,12 +187,7 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
                       <div style={{ width: 2, flex: 1, minHeight: 16, background: isDone ? '#22c55e' : 'var(--border)', marginTop: 2 }} />
                     )}
                   </div>
-
-                  {/* Stop content */}
-                  <div style={{
-                    flex: 1, paddingBottom: idx < stops.length - 1 ? 14 : 0,
-                    opacity: isFailed ? 0.6 : 1,
-                  }}>
+                  <div style={{ flex: 1, paddingBottom: idx < stops.length - 1 ? 14 : 0, opacity: isFailed ? 0.6 : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{
@@ -185,16 +198,14 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
                           {stop.order?.customerName ?? `Order #${stop.orderId.slice(-6).toUpperCase()}`}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-2)', marginTop: 2 }}>
-                          📍 {stop.order?.address ?? 'Address not available'}
+                          {stop.order?.address ?? 'Address not available'}
                         </div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                           {stop.order?.priority && <PriorityBadge p={stop.order.priority} />}
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>
-                            {stop.order?.weightKg ?? '—'} kg
-                          </span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>{stop.order?.weightKg ?? '—'} kg</span>
                           {stop.projectedArrival && (
                             <span style={{ fontSize: '0.72rem', fontWeight: 600, color: isDone ? '#16a34a' : '#0284c7' }}>
-                              ⏰ {isDone ? 'Arrived' : 'ETA'}: {fmtTime(stop.actualArrival ?? stop.projectedArrival)}
+                              {isDone ? 'Arrived' : 'ETA'}: {fmtTime(stop.actualArrival ?? stop.projectedArrival)}
                             </span>
                           )}
                         </div>
@@ -216,49 +227,23 @@ function RouteDetailCard({ route, onAction, actionLoading }: {
   );
 }
 
-// ── Main DriverPage ────────────────────────────────────────────────────────────
-
 export default function DriverPage() {
-  const [drivers, setDrivers]               = useState<Driver[]>([]);
+  const { user } = useAuth();
+  const isDriverLogin = user?.role === 'DRIVER';
+
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [routesByDriver, setRoutesByDriver] = useState<Record<string, Route[]>>({});
   const [selectedDriverId, setSelectedDriverId] = useState<string>('');
-  const [loading, setLoading]               = useState(true);
-  const [actionLoading, setActionLoading]   = useState(false);
-  const [toast, setToast]                   = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [driverRoutes, setDriverRoutes] = useState<Route[]>([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
   };
-
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [driversData, routesData] = await Promise.all([api.getDrivers(), api.getRoutes()]);
-      setDrivers(driversData);
-
-      // Group routes by driver
-      const grouped: Record<string, Route[]> = {};
-      for (const r of routesData) {
-        if (!grouped[r.driverId]) grouped[r.driverId] = [];
-        grouped[r.driverId].push(r);
-      }
-      setRoutesByDriver(grouped);
-
-      // Default to Suresh Reddy (first driver) or first available
-      if (!selectedDriverId && driversData.length > 0) {
-        setSelectedDriverId(driversData[0].id);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedDriverId]);
-
-  // Fetch full route details (with stops) for selected driver's routes
-  const [driverRoutes, setDriverRoutes] = useState<Route[]>([]);
-  const [routesLoading, setRoutesLoading] = useState(false);
 
   const loadDriverRoutes = useCallback(async (driverId: string, allRoutes: Record<string, Route[]>) => {
     const basic = allRoutes[driverId] ?? [];
@@ -266,42 +251,69 @@ export default function DriverPage() {
     setRoutesLoading(true);
     try {
       const full = await Promise.all(basic.map(r => api.getRouteById(r.id).catch(() => r)));
-      // Sort: IN_PROGRESS first, then PLANNED, then COMPLETED, then rest
       const order: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, COMPLETED: 2, CANCELLED: 3 };
       full.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
       setDriverRoutes(full);
-    } catch (e) {
+    } catch {
       setDriverRoutes(basic);
     } finally {
       setRoutesLoading(false);
     }
   }, []);
 
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (isDriverLogin) {
+        const [me, routesData] = await Promise.all([api.getMyDriverProfile(), api.getRoutes()]);
+        setDrivers([me]);
+        setSelectedDriverId(me.id);
+        const grouped: Record<string, Route[]> = {};
+        for (const r of routesData) {
+          if (!grouped[r.driverId]) grouped[r.driverId] = [];
+          grouped[r.driverId].push(r);
+        }
+        setRoutesByDriver(grouped);
+        await loadDriverRoutes(me.id, grouped);
+      } else {
+        const [driversData, routesData] = await Promise.all([api.getDrivers(), api.getRoutes()]);
+        setDrivers(driversData);
+        const grouped: Record<string, Route[]> = {};
+        for (const r of routesData) {
+          if (!grouped[r.driverId]) grouped[r.driverId] = [];
+          grouped[r.driverId].push(r);
+        }
+        setRoutesByDriver(grouped);
+        const nextId = selectedDriverId || driversData[0]?.id || '';
+        if (nextId) {
+          setSelectedDriverId(nextId);
+          await loadDriverRoutes(nextId, grouped);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      showToast(e instanceof ApiError ? e.message : 'Failed to load driver data');
+    } finally {
+      setLoading(false);
+    }
+  }, [isDriverLogin, loadDriverRoutes, selectedDriverId]);
+
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
-    if (selectedDriverId) {
+    if (!isDriverLogin && selectedDriverId) {
       loadDriverRoutes(selectedDriverId, routesByDriver);
     }
-  }, [selectedDriverId, routesByDriver]);
+  }, [selectedDriverId, routesByDriver, isDriverLogin, loadDriverRoutes]);
 
   const handleAction = async (routeId: string, action: 'start' | 'complete' | 'cancel') => {
     setActionLoading(true);
     try {
-      if (action === 'start')    await api.startRoute(routeId);
+      if (action === 'start') await api.startRoute(routeId);
       if (action === 'complete') await api.completeRoute(routeId);
-      if (action === 'cancel')   await api.cancelRoute(routeId);
-      showToast(action === 'start' ? '🚀 Trip started!' : action === 'complete' ? '✅ Route marked complete!' : '🚫 Route cancelled.');
-      // Reload
-      const [driversData, routesData] = await Promise.all([api.getDrivers(), api.getRoutes()]);
-      setDrivers(driversData);
-      const grouped: Record<string, Route[]> = {};
-      for (const r of routesData) {
-        if (!grouped[r.driverId]) grouped[r.driverId] = [];
-        grouped[r.driverId].push(r);
-      }
-      setRoutesByDriver(grouped);
-      await loadDriverRoutes(selectedDriverId, grouped);
+      if (action === 'cancel') await api.cancelRoute(routeId);
+      showToast(action === 'start' ? 'Trip started' : action === 'complete' ? 'Route marked complete' : 'Route cancelled');
+      await loadAll();
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : 'Action failed.');
     } finally {
@@ -322,128 +334,106 @@ export default function DriverPage() {
 
   return (
     <div className="page-enter">
-      {/* Toast */}
       {toast && (
         <div style={{
           position: 'fixed', top: 20, right: 20, zIndex: 9999,
           background: '#1a1a1a', color: '#fff', padding: '12px 18px',
           borderRadius: 10, fontSize: '0.9rem', fontWeight: 500,
           boxShadow: '0 4px 20px rgba(0,0,0,0.25)', maxWidth: 320,
-          animation: 'fadeIn 0.2s ease',
         }}>
           {toast}
         </div>
       )}
 
-      {/* ── Header ── */}
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <h2 className="page-title">Driver Portal</h2>
-            <p className="page-subtitle">Select a driver to view their allocated routes and delivery stops</p>
+            <h2 className="page-title">{isDriverLogin ? 'My Routes' : 'Driver Portal'}</h2>
+            <p className="page-subtitle">
+              {isDriverLogin
+                ? 'Your assigned stops, map, and trip controls'
+                : 'Select a driver to view allocated routes and delivery stops'}
+            </p>
           </div>
-          <button className="btn btn-outline btn-sm" onClick={loadAll}>🔄 Refresh</button>
+          <button className="btn btn-outline btn-sm" onClick={loadAll}>Refresh</button>
         </div>
       </div>
 
-      {/* ── Driver selector ── */}
       {drivers.length === 0 ? (
         <div className="empty-state">
-          <p style={{ fontSize: '2rem', marginBottom: 8 }}>👤</p>
           <p style={{ fontWeight: 600 }}>No Drivers Found</p>
           <p style={{ color: 'var(--text-3)', fontSize: '0.875rem', marginTop: 4 }}>
-            Add drivers via the backend seed or admin API.
+            Add drivers via seed or admin API.
           </p>
         </div>
       ) : (
         <>
-          {/* Driver pills */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
-            {drivers.map(d => {
-              const dRoutes = routesByDriver[d.id] ?? [];
-              const hasActive = dRoutes.some(r => r.status === 'IN_PROGRESS');
-              const hasPlanned = dRoutes.some(r => r.status === 'PLANNED');
-              const isSelected = d.id === selectedDriverId;
-              return (
-                <button
-                  key={d.id}
-                  onClick={() => setSelectedDriverId(d.id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 16px',
-                    background: isSelected ? 'var(--green-800)' : 'var(--surface)',
-                    color: isSelected ? '#fff' : 'var(--text-1)',
-                    border: `2px solid ${isSelected ? 'var(--green-700)' : 'var(--border)'}`,
-                    borderRadius: 10, cursor: 'pointer',
-                    fontFamily: 'var(--font-sans)',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%',
-                    background: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--green-100)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '1rem',
-                  }}>
-                    👤
-                  </div>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{d.name}</div>
-                    <div style={{ fontSize: '0.7rem', opacity: 0.75, marginTop: 1 }}>
-                      {hasActive ? '🟢 On Road' : hasPlanned ? '🟡 Ready' : dRoutes.length > 0 ? `${dRoutes.length} route${dRoutes.length !== 1 ? 's' : ''}` : 'No routes'}
+          {!isDriverLogin && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+              {drivers.map(d => {
+                const dRoutes = routesByDriver[d.id] ?? [];
+                const hasActive = dRoutes.some(r => r.status === 'IN_PROGRESS');
+                const hasPlanned = dRoutes.some(r => r.status === 'PLANNED');
+                const isSelected = d.id === selectedDriverId;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => setSelectedDriverId(d.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 16px',
+                      background: isSelected ? 'var(--green-800)' : 'var(--surface)',
+                      color: isSelected ? '#fff' : 'var(--text-1)',
+                      border: `2px solid ${isSelected ? 'var(--green-700)' : 'var(--border)'}`,
+                      borderRadius: 10, cursor: 'pointer',
+                      fontFamily: 'var(--font-sans)',
+                    }}
+                  >
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{d.name}</div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.75, marginTop: 1 }}>
+                        {hasActive ? 'On Road' : hasPlanned ? 'Ready' : dRoutes.length > 0 ? `${dRoutes.length} routes` : 'No routes'}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-          {/* Selected driver info bar */}
           {selectedDriver && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 14,
               padding: '14px 18px',
               background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, marginBottom: 20,
-              flexWrap: 'wrap',
+              borderRadius: 12, marginBottom: 20, flexWrap: 'wrap',
             }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: '50%',
-                background: 'var(--green-100)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '1.4rem', flexShrink: 0,
-              }}>👤</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: '1rem' }}>{selectedDriver.name}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 2 }}>
-                  <span>📞 {selectedDriver.phone}</span>
-                  <span>🪪 {selectedDriver.licenseNumber}</span>
+                  <span>{selectedDriver.phone}</span>
+                  <span>{selectedDriver.licenseNumber}</span>
                   {selectedDriver.vehicle && (
-                    <span>🚗 {selectedDriver.vehicle.plateNumber} ({selectedDriver.vehicle.type})</span>
+                    <span>{selectedDriver.vehicle.plateNumber} ({selectedDriver.vehicle.type})</span>
                   )}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--green-700)' }}>
-                  {driverRoutes.length}
-                </div>
+                <div style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--green-700)' }}>{driverRoutes.length}</div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Total Routes</div>
               </div>
             </div>
           )}
 
-          {/* Routes for selected driver */}
           {routesLoading ? (
             <div className="empty-state" style={{ padding: '30px 0' }}>
               <span className="spinner spinner-dark" />
-              <p style={{ marginTop: 8, color: 'var(--text-3)' }}>Loading routes…</p>
             </div>
           ) : driverRoutes.length === 0 ? (
             <div className="empty-state" style={{ padding: '40px 20px' }}>
-              <p style={{ fontSize: '2rem', marginBottom: 8 }}>🛣️</p>
               <p style={{ fontWeight: 600, marginBottom: 4 }}>No Routes Assigned Yet</p>
               <p style={{ color: 'var(--text-3)', fontSize: '0.875rem' }}>
-                {selectedDriver?.name} doesn't have any routes assigned. The dispatcher can run optimization to assign orders.
+                {selectedDriver?.name} has no routes. Ask a dispatcher to run optimization.
               </p>
             </div>
           ) : (
@@ -454,6 +444,7 @@ export default function DriverPage() {
                   route={route}
                   onAction={handleAction}
                   actionLoading={actionLoading}
+                  canCancel={!isDriverLogin}
                 />
               ))}
             </div>

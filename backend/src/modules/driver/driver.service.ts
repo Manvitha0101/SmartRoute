@@ -61,6 +61,17 @@ export const getDriverById = async (id: string) => {
   return driver;
 };
 
+export const getDriverByUserId = async (userId: string) => {
+  const driver = await driverRepo.findDriverByUserId(userId);
+  if (!driver) {
+    throw AppError.notFound(
+      "No driver profile linked to this account",
+      "DRIVER_PROFILE_NOT_FOUND"
+    );
+  }
+  return driver;
+};
+
 export const updateDriver = async (id: string, data: UpdateDriverInput) => {
   await getDriverById(id); // 404 guard
 

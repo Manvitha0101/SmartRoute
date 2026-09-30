@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { AuthResponse, Order, Warehouse, Vehicle, Driver, Route, RouteStop, AnalyticsSummary, DispatcherLive } from '../types';
+import type { AuthResponse, Order, Warehouse, Vehicle, Driver, Route, RouteStop, AnalyticsSummary, DispatcherLive, OptimizeResult } from '../types';
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
 export const login = (email: string, password: string) =>
@@ -33,6 +33,9 @@ export const getDrivers = () =>
 export const getDriverById = (id: string) =>
   api.get<Driver>(`/drivers/${id}`);
 
+export const getMyDriverProfile = () =>
+  api.get<Driver>('/drivers/me');
+
 // ── Orders ─────────────────────────────────────────────────────────────────────
 export const getOrders = (params?: { status?: string; priority?: string; warehouseId?: string }) => {
   const query = new URLSearchParams();
@@ -63,7 +66,7 @@ export const optimizeRoutes = (data: {
   warehouseId: string;
   vehicleIds: string[];
   driverIds: string[];
-}) => api.post<{ routesCreated: number; routes: Route[]; unassignedOrderCount: number; warning: string | null }>('/routes/optimize', data);
+}) => api.post<OptimizeResult>('/routes/optimize', data);
 
 export const startRoute = (id: string) =>
   api.patch<Route>(`/routes/${id}/start`);

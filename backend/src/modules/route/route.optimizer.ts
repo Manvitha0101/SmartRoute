@@ -85,9 +85,17 @@ export type OptimizedRoute = {
   totalDistanceKm: number;
 };
 
+export type OptimizationComparison = {
+  greedyDistanceKm: number;
+  randomDistanceKm: number;
+  savingsPercent: number;
+  trials: number;
+};
+
 export type OptimizationResult = {
   routes: OptimizedRoute[];
   unassignedOrderIds: string[]; // Orders that couldn't fit in any vehicle
+  comparison: OptimizationComparison;
 };
 
 // ─── Haversine Distance ────────────────────────────────────────────────────────
@@ -150,6 +158,125 @@ const priorityScore = (priority: string): number => {
   }
 };
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+const AVERAGE_SPEED_KMH = 30;
+
+const sortOrdersForGreedy = (orders: OrderForOptimizer[]): OrderForOptimizer[] =>
+  [...orders].sort((a, b) => {
+    const priorityDiff = priorityScore(b.priority) - priorityScore(a.priority);
+    if (priorityDiff !== 0) return priorityDiff;
+    if (a.latestDelivery && b.latestDelivery) {
+      return a.latestDelivery.getTime() - b.latestDelivery.getTime();
+    }
+    if (a.latestDelivery) return -1;
+    if (b.latestDelivery) return 1;
+    return 0;
+  });
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const totalDistanceKm = (routes: OptimizedRoute[]) =>
+  round2(routes.reduce((sum, r) => sum + r.totalDistanceKm, 0));
+
+/**
+ * Build routes by walking an explicit order sequence per vehicle (no re-picking).
+ * Used for the random baseline: assign orders randomly, then measure path length.
+ */
+const buildRoutesFromAssignment = (
+  assignments: { vehicle: VehicleForOptimizer; orders: OrderForOptimizer[] }[],
+  warehouse: Warehouse
+): OptimizedRoute[] => {
+  const routes: OptimizedRoute[] = [];
+
+  for (const { vehicle, orders } of assignments) {
+    if (orders.length === 0) continue;
+
+    let currentLat = warehouse.latitude;
+    let currentLon = warehouse.longitude;
+    let totalDistance = 0;
+    let currentTime = new Date();
+    const stops: OptimizedRoute["stops"] = [];
+    let sequence = 1;
+
+    for (const order of orders) {
+      const dist = haversineDistanceKm(
+        currentLat,
+        currentLon,
+        order.latitude,
+        order.longitude
+      );
+      totalDistance += dist;
+      const travelTimeMs = (dist / AVERAGE_SPEED_KMH) * 60 * 60 * 1000;
+      currentTime = new Date(currentTime.getTime() + travelTimeMs);
+      stops.push({
+        orderId: order.id,
+        sequence: sequence++,
+        projectedArrival: new Date(currentTime),
+      });
+      currentLat = order.latitude;
+      currentLon = order.longitude;
+    }
+
+    routes.push({
+      vehicleId: vehicle.id,
+      driverId: vehicle.driverId,
+      stops,
+      totalDistanceKm: round2(totalDistance),
+    });
+  }
+
+  return routes;
+};
+
+/** Fisher–Yates shuffle (pure; seed via Math.random for demo benchmarks). */
+const shuffle = <T>(items: T[]): T[] => {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+/**
+ * Random baseline: shuffle orders, first-fit into vehicles by capacity,
+ * visit each vehicle's bag in assignment order. Average over `trials`.
+ */
+export const averageRandomDistanceKm = (
+  orders: OrderForOptimizer[],
+  vehicles: VehicleForOptimizer[],
+  warehouse: Warehouse,
+  trials = 25
+): number => {
+  if (orders.length === 0 || vehicles.length === 0) return 0;
+
+  let sum = 0;
+  for (let t = 0; t < trials; t++) {
+    const shuffled = shuffle(orders);
+    const bags = vehicles.map((v) => ({
+      vehicle: v,
+      orders: [] as OrderForOptimizer[],
+      remaining: v.capacityKg,
+    }));
+
+    for (const order of shuffled) {
+      const bag = bags.find((b) => order.weightKg <= b.remaining);
+      if (!bag) continue;
+      bag.orders.push(order);
+      bag.remaining -= order.weightKg;
+    }
+
+    const routes = buildRoutesFromAssignment(
+      bags.map((b) => ({ vehicle: b.vehicle, orders: b.orders })),
+      warehouse
+    );
+    sum += totalDistanceKm(routes);
+  }
+
+  return round2(sum / trials);
+};
+
 // ─── Main Algorithm ────────────────────────────────────────────────────────────
 
 /**
@@ -159,66 +286,34 @@ const priorityScore = (priority: string): number => {
  *   N = number of orders
  *   K = number of vehicles
  *   For N=50, K=5: 50² × 5 = 12,500 operations — runs in < 1ms
- *
- * @param orders   - All PENDING orders for this warehouse
- * @param vehicles - Available vehicles with drivers assigned
- * @param warehouse - The dispatch hub (starting point for all vehicles)
- * @returns        - Optimized routes per vehicle + unassigned order IDs
  */
 export const optimizeRoutes = (
   orders: OrderForOptimizer[],
   vehicles: VehicleForOptimizer[],
-  warehouse: Warehouse
+  warehouse: Warehouse,
+  options?: { randomTrials?: number }
 ): OptimizationResult => {
-
-  // Step 1: Sort orders by priority descending (HIGH first)
-  // Within same priority, sort by latestDelivery ascending (tightest deadline first)
-  // This is the "Earliest Deadline First" (EDF) tie-breaking strategy
-  const sortedOrders = [...orders].sort((a, b) => {
-    const priorityDiff = priorityScore(b.priority) - priorityScore(a.priority);
-    if (priorityDiff !== 0) return priorityDiff;
-
-    // Same priority → tighter deadline comes first
-    if (a.latestDelivery && b.latestDelivery) {
-      return a.latestDelivery.getTime() - b.latestDelivery.getTime();
-    }
-    if (a.latestDelivery) return -1; // a has deadline, b doesn't → a first
-    if (b.latestDelivery) return 1;
-    return 0;
-  });
-
-  // Track which orders have been assigned
+  const sortedOrders = sortOrdersForGreedy(orders);
   const unassigned = new Set(sortedOrders.map((o) => o.id));
   const routes: OptimizedRoute[] = [];
 
-  // Step 2: For each vehicle, greedily assign nearest-feasible orders
   for (const vehicle of vehicles) {
     let remainingCapacity = vehicle.capacityKg;
-
-    // Current position starts at the warehouse
     let currentLat = warehouse.latitude;
     let currentLon = warehouse.longitude;
-
     const stops: OptimizedRoute["stops"] = [];
     let totalDistance = 0;
     let sequence = 1;
-
-    // Estimate departure time as "now" — real system would use planned departure
     let currentTime = new Date();
 
-    // Keep picking the nearest unassigned order that fits in remaining capacity
     while (true) {
       let bestOrder: OrderForOptimizer | null = null;
       let bestDistance = Infinity;
 
-      // Scan all unassigned orders to find the nearest feasible one
       for (const order of sortedOrders) {
-        if (!unassigned.has(order.id)) continue; // Already assigned
-
-        // Capacity check: can this vehicle carry this order?
+        if (!unassigned.has(order.id)) continue;
         if (order.weightKg > remainingCapacity) continue;
 
-        // Distance from current position to this order
         const dist = haversineDistanceKm(
           currentLat,
           currentLon,
@@ -226,28 +321,18 @@ export const optimizeRoutes = (
           order.longitude
         );
 
-        // Pick this order if it's closer than the current best
-        // Note: priority sorting already happened before this loop.
-        // If two orders have the same priority, we pick the closer one.
         if (dist < bestDistance) {
           bestDistance = dist;
           bestOrder = order;
         }
       }
 
-      // No feasible order found → this vehicle is done
       if (!bestOrder) break;
 
-      // Assign this order to this vehicle
       unassigned.delete(bestOrder.id);
       totalDistance += bestDistance;
 
-      // Estimate arrival time: distance ÷ average speed
-      // We assume 30 km/h average speed for urban delivery
-      // (accounts for traffic, stops, loading/unloading time)
-      const AVERAGE_SPEED_KMH = 30;
-      const travelTimeHours = bestDistance / AVERAGE_SPEED_KMH;
-      const travelTimeMs = travelTimeHours * 60 * 60 * 1000;
+      const travelTimeMs = (bestDistance / AVERAGE_SPEED_KMH) * 60 * 60 * 1000;
       currentTime = new Date(currentTime.getTime() + travelTimeMs);
 
       stops.push({
@@ -256,25 +341,42 @@ export const optimizeRoutes = (
         projectedArrival: new Date(currentTime),
       });
 
-      // Move current position to this delivery location
       remainingCapacity -= bestOrder.weightKg;
       currentLat = bestOrder.latitude;
       currentLon = bestOrder.longitude;
     }
 
-    // Only create a route if at least one order was assigned
     if (stops.length > 0) {
       routes.push({
         vehicleId: vehicle.id,
         driverId: vehicle.driverId,
         stops,
-        totalDistanceKm: Math.round(totalDistance * 100) / 100, // Round to 2 decimal places
+        totalDistanceKm: round2(totalDistance),
       });
     }
   }
 
+  const trials = options?.randomTrials ?? 25;
+  const greedyDistanceKm = totalDistanceKm(routes);
+  const randomDistanceKm = averageRandomDistanceKm(
+    orders,
+    vehicles,
+    warehouse,
+    trials
+  );
+  const savingsPercent =
+    randomDistanceKm > 0
+      ? round2(((randomDistanceKm - greedyDistanceKm) / randomDistanceKm) * 100)
+      : 0;
+
   return {
     routes,
     unassignedOrderIds: Array.from(unassigned),
+    comparison: {
+      greedyDistanceKm,
+      randomDistanceKm,
+      savingsPercent,
+      trials,
+    },
   };
 };

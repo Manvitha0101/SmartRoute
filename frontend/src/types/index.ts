@@ -3,7 +3,7 @@
 export interface User {
   id: string;
   email: string;
-  role: 'ADMIN' | 'DISPATCHER';
+  role: 'ADMIN' | 'DISPATCHER' | 'DRIVER';
 }
 
 export interface AuthResponse {
@@ -159,6 +159,21 @@ export interface DispatcherLive {
   availableDriverCount: number;
   activeRoutes: ActiveRouteItem[];
   plannedRoutes: PlannedRouteItem[];
+}
+
+export interface OptimizationComparison {
+  greedyDistanceKm: number;
+  randomDistanceKm: number;
+  savingsPercent: number;
+  trials: number;
+}
+
+export interface OptimizeResult {
+  routesCreated: number;
+  routes: Route[];
+  unassignedOrderCount: number;
+  warning: string | null;
+  comparison?: OptimizationComparison;
 }
 
 export interface ApiResponse<T> {

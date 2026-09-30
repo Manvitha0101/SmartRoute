@@ -7,6 +7,7 @@ export type DriverRecord = {
   phone: string;
   licenseNumber: string;
   vehicleId: string | null;
+  userId: string | null;
   createdAt: Date;
   updatedAt: Date;
   vehicle?: {
@@ -32,6 +33,7 @@ const driverSelect = {
   phone: true,
   licenseNumber: true,
   vehicleId: true,
+  userId: true,
   createdAt: true,
   updatedAt: true,
   vehicle: {
@@ -56,7 +58,7 @@ const driverSelect = {
       stops: { select: { id: true, status: true } },
     },
     orderBy: { createdAt: "desc" as const },
-    take: 1,
+    take: 5,
   },
 };
 
@@ -75,6 +77,15 @@ export const findAllDrivers = async (): Promise<DriverRecord[]> => {
 export const findDriverById = async (id: string): Promise<DriverRecord | null> => {
   return prisma.driver.findFirst({
     where: { id, deletedAt: null },
+    select: driverSelect,
+  }) as any;
+};
+
+export const findDriverByUserId = async (
+  userId: string
+): Promise<DriverRecord | null> => {
+  return prisma.driver.findFirst({
+    where: { userId, deletedAt: null },
     select: driverSelect,
   }) as any;
 };

@@ -23,7 +23,12 @@ async function main() {
     update: { passwordHash: hash, role: UserRole.DISPATCHER },
     create: { email: "dispatcher@smartroute.io", passwordHash: hash, role: UserRole.DISPATCHER },
   });
-  console.log(`✅ Users: ${admin.email}, ${dispatcher.email}`);
+  const driverUser = await prisma.user.upsert({
+    where:  { email: "driver@smartroute.io" },
+    update: { passwordHash: hash, role: UserRole.DRIVER },
+    create: { email: "driver@smartroute.io", passwordHash: hash, role: UserRole.DRIVER },
+  });
+  console.log(`✅ Users: ${admin.email}, ${dispatcher.email}, ${driverUser.email}`);
 
   // ── 2. Wipe old demo data ────────────────────────────────────────────────────
   await prisma.timeWindowViolation.deleteMany({});
@@ -66,7 +71,7 @@ async function main() {
 
   // ── 5. Drivers ──────────────────────────────────────────────────────────────
   const driversData = [
-    { name: "Suresh Reddy",    phone: "+91 98480 12345", licenseNumber: "TS-09-2018004123", vehicleId: vehicles[0].id },
+    { name: "Suresh Reddy",    phone: "+91 98480 12345", licenseNumber: "TS-09-2018004123", vehicleId: vehicles[0].id, userId: driverUser.id },
     { name: "Ramesh Varma",    phone: "+91 94401 67890", licenseNumber: "AP-05-2019008741", vehicleId: vehicles[2].id },
     { name: "Ananya Rao",      phone: "+91 97000 54321", licenseNumber: "KA-03-2021003412", vehicleId: vehicles[3].id },
     { name: "Karthik Kumar",   phone: "+91 98840 98765", licenseNumber: "TN-09-2017006543", vehicleId: vehicles[4].id },
@@ -74,7 +79,7 @@ async function main() {
     { name: "Venkatesh Naidu", phone: "+91 98660 76543", licenseNumber: "AP-16-2022001122", vehicleId: vehicles[5].id },
   ];
   const drivers = await Promise.all(driversData.map(d => prisma.driver.create({ data: d })));
-  console.log(`✅ ${drivers.length} Drivers`);
+  console.log(`✅ ${drivers.length} Drivers (Suresh ↔ driver@smartroute.io)`);
 
   const now = new Date();
   const ph  = (h: number) => new Date(now.getTime() + h * 3_600_000);
