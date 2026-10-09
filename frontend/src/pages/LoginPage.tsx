@@ -72,7 +72,7 @@ export default function LoginPage() {
         <div className="login-brand">
           <div className="login-logo-badge">🚀</div>
           <h1>SmartRoute</h1>
-          <p>Intelligent Delivery Route Optimization &amp; Fleet Dispatch</p>
+          <p> Delivery Route Optimization &amp; Fleet Dispatch</p>
         </div>
 
         {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
