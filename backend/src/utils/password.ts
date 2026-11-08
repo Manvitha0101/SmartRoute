@@ -1,13 +1,13 @@
 import crypto from "crypto";
 
-export function hashPasswordSync(password: string): string {
+export function hashPasswordSync(password: string, _saltOrRounds?: number | string): string {
   const salt = crypto.randomBytes(16).toString("hex");
   const derived = crypto.scryptSync(password, salt, 64).toString("hex");
   return `$scrypt$${salt}$${derived}`;
 }
 
-export async function hashPassword(password: string): Promise<string> {
-  return hashPasswordSync(password);
+export async function hashPassword(password: string, saltOrRounds?: number | string): Promise<string> {
+  return hashPasswordSync(password, saltOrRounds);
 }
 
 export function comparePasswordSync(password: string, hash: string): boolean {
@@ -48,8 +48,8 @@ export const bcrypt = {
   hashSync: hashPasswordSync,
   compare: comparePassword,
   compareSync: comparePasswordSync,
-  genSalt: async () => "$2b$10$",
-  genSaltSync: () => "$2b$10$",
+  genSalt: async (_rounds?: number) => "$2b$10$",
+  genSaltSync: (_rounds?: number) => "$2b$10$",
 };
 
 export default bcrypt;
