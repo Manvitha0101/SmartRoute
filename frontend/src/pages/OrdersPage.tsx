@@ -63,29 +63,9 @@ export default function OrdersPage() {
     <div className="page-enter">
       <div className="page-header">
         <div>
-          <h2 className="page-title">Incoming Orders</h2>
-          <p className="page-subtitle">{orders.length} order{orders.length !== 1 ? 's' : ''} received from company</p>
+          <h2 className="page-title">Orders</h2>
+          <p className="page-subtitle">{orders.length} order{orders.length !== 1 ? 's' : ''}</p>
         </div>
-      </div>
-
-      {/* Dispatcher info banner */}
-      <div style={{
-        background: '#eff6ff',
-        border: '1px solid #bfdbfe',
-        borderRadius: 8,
-        padding: '10px 16px',
-        fontSize: '0.85rem',
-        color: '#1e40af',
-        marginBottom: 12,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-      }}>
-        <span style={{ fontSize: '1.1rem' }}>ℹ️</span>
-        <span>
-          <strong>Dispatcher view:</strong> Orders are assigned by your logistics company and appear here automatically.
-          Go to <strong>Routes</strong> to run the AI optimizer and dispatch drivers to these orders.
-        </span>
       </div>
 
       {actionError && (

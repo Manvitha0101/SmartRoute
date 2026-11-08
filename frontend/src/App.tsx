@@ -43,7 +43,7 @@ function AppShell() {
       <aside className="sidebar">
         <div className="sidebar-logo">
           <h1>SmartRoute</h1>
-          <span>Route Optimization</span>
+          <span>Hyderabad deliveries</span>
         </div>
 
         <nav className="sidebar-nav">

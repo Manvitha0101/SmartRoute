@@ -135,4 +135,8 @@ export const updateOrderSchema = z
   );
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
+export const batchCreateOrderSchema = z.object({
+  orders: z.array(createOrderSchema).min(1, "At least one order required"),
+});
+export type BatchCreateOrderInput = z.infer<typeof batchCreateOrderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;

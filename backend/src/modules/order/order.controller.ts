@@ -125,3 +125,20 @@ export const deleteOrder = asyncHandler(async (req: Request, res: Response) => {
   await orderService.deleteOrder(req.params.id);
   res.status(204).send();
 });
+
+export const createBatchOrders = asyncHandler(async (req: Request, res: Response) => {
+  const orders = Array.isArray(req.body) ? req.body : req.body?.orders;
+  if (!orders || !Array.isArray(orders) || orders.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: "An array of orders is required" },
+    });
+  }
+  const result = await orderService.createBatchOrders(orders);
+  res.status(201).json(successResponse({ count: result.length, orders: result }));
+});
+
+export const clearPendingOrders = asyncHandler(async (_req: Request, res: Response) => {
+  const result = await orderService.clearPendingOrders();
+  res.status(200).json(successResponse({ message: "Cleared pending unassigned orders", count: result.count }));
+});

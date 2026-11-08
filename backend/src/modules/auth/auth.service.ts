@@ -2,7 +2,7 @@
  * auth.service.ts — all business logic for authentication.
  */
 
-import bcrypt from "bcrypt";
+import bcrypt from "../../utils/password";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { UserRole } from "@prisma/client";
@@ -53,7 +53,33 @@ export const register = async (input: RegisterInput) => {
     role: input.role as UserRole,
   });
 
-  return user;
+  // If registering as a Driver, create the associated Driver entity
+  if (input.role === "DRIVER") {
+    const { prisma } = await import("../../prisma/client");
+    const availableVehicle = await prisma.vehicle.findFirst({
+      where: { drivers: { none: {} }, deletedAt: null },
+    });
+    await prisma.driver.create({
+      data: {
+        name: input.name || input.email.split("@")[0],
+        phone: input.phone || "+91 " + Math.floor(6000000000 + Math.random() * 3999999999),
+        licenseNumber: "TS-09-" + Math.floor(100000 + Math.random() * 900000),
+        userId: user.id,
+        vehicleId: availableVehicle?.id ?? null,
+      },
+    });
+  }
+
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshToken();
+
+  await authRepository.createRefreshToken({
+    userId: user.id,
+    token: refreshToken,
+    expiresAt: getRefreshTokenExpiry(),
+  });
+
+  return { accessToken, refreshToken, user };
 };
 
 export const login = async (
@@ -61,8 +87,18 @@ export const login = async (
 ): Promise<{ accessToken: string; refreshToken: string; user: authRepository.UserRecord }> => {
   const user = await authRepository.findUserByEmail(input.email);
 
-  const passwordHash = user?.passwordHash ?? "$2b$12$invalidhashpaddingtomakeitconstanttime";
-  const isPasswordValid = await bcrypt.compare(input.password, passwordHash);
+  // Valid hash of a throwaway password. Comparing against it when the
+  // account is missing keeps the response time similar and never throws.
+  const passwordHash =
+    user?.passwordHash ??
+    "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
+  let isPasswordValid = false;
+  try {
+    isPasswordValid = await bcrypt.compare(input.password, passwordHash);
+  } catch {
+    isPasswordValid = false;
+  }
 
   if (!user || !isPasswordValid) {
     throw AppError.unauthorized("Invalid email or password");

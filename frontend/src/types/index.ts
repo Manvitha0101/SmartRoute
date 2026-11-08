@@ -1,14 +1,8 @@
-// All shared TypeScript types — mirrors the backend response shapes
-
 export interface User {
   id: string;
   email: string;
   role: 'ADMIN' | 'DISPATCHER' | 'DRIVER';
-}
-
-export interface AuthResponse {
-  accessToken: string;
-  user: User;
+  createdAt?: string;
 }
 
 export interface Warehouse {
@@ -17,14 +11,18 @@ export interface Warehouse {
   address: string;
   latitude: number;
   longitude: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Vehicle {
   id: string;
   plateNumber: string;
-  type: string;
+  type: 'VAN' | 'TRUCK' | 'BIKE';
   capacityKg: number;
-  fuelType: string;
+  fuelType: 'DIESEL' | 'PETROL' | 'ELECTRIC';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Driver {
@@ -32,75 +30,66 @@ export interface Driver {
   name: string;
   phone: string;
   licenseNumber: string;
-  vehicleId: string | null;
-  vehicle?: {
-    id: string;
-    plateNumber: string;
-    type: string;
-    capacityKg: number;
-    fuelType: string;
-  } | null;
-  routes?: {
-    id: string;
-    status: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-    totalDistanceKm: number | null;
-    estimatedDurationMin: number | null;
-    warehouse: { name: string };
-    stops: { id: string; status: string }[];
-  }[];
+  vehicleId?: string | null;
+  userId?: string | null;
+  vehicle?: Vehicle | null;
+  user?: User | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type OrderPriority = 'LOW' | 'MEDIUM' | 'HIGH';
+export type OrderStatus = 'PENDING' | 'ASSIGNED' | 'DELIVERED' | 'FAILED' | 'CANCELLED';
 
 export interface Order {
   id: string;
   customerName: string;
-  address: string;
+  deliveryAddress: string;
   latitude: number;
   longitude: number;
-  priority: 'HIGH' | 'MEDIUM' | 'LOW';
-  earliestDelivery: string | null;
-  latestDelivery: string | null;
-  weightKg: number;
-  status: 'PENDING' | 'ASSIGNED' | 'DELIVERED' | 'FAILED' | 'CANCELLED';
-  timeWindowStatus: string;
+  packageWeightKg: number;
+  priority: OrderPriority;
+  status: OrderStatus;
   warehouseId: string;
-  createdAt: string;
+  deliveryDeadline?: string | null;
+  timeWindowStart?: string | null;
+  timeWindowEnd?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  warehouse?: Warehouse;
 }
+
+export type RouteStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type RouteStopStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
 
 export interface RouteStop {
   id: string;
+  routeId: string;
   orderId: string;
   stopSequence: number;
-  projectedArrival: string | null;
-  actualArrival: string | null;
-  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
-  order?: {
-    customerName: string;
-    address: string;
-    weightKg: number;
-    priority: 'HIGH' | 'MEDIUM' | 'LOW';
-    latestDelivery: string | null;
-    latitude: number;
-    longitude: number;
-  };
+  status: RouteStopStatus;
+  estimatedArrival?: string | null;
+  actualArrival?: string | null;
+  order?: Order;
 }
 
 export interface Route {
   id: string;
-  driverId: string;
-  vehicleId: string;
   warehouseId: string;
-  status: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  vehicleId: string;
+  driverId: string;
+  status: RouteStatus;
   totalDistanceKm: number | null;
   estimatedDurationMin: number | null;
-  plannedDepartureAt: string | null;
-  actualDepartureAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-  driver?: { name: string; phone: string };
-  vehicle?: { plateNumber: string; capacityKg: number; type: string };
-  warehouse?: { name: string; latitude: number; longitude: number };
-  _count?: { stops: number };
+  startedAt?: string | null;
+  completedAt?: string | null;
   stops?: RouteStop[];
+  vehicle?: Vehicle;
+  driver?: Driver;
+  warehouse?: Warehouse;
+  _count?: {
+    stops: number;
+  };
 }
 
 export interface AnalyticsSummary {
@@ -110,74 +99,29 @@ export interface AnalyticsSummary {
     assigned: number;
     delivered: number;
     failed: number;
-    cancelled: number;
   };
   routes: {
     total: number;
     planned: number;
-    inProgress: number;
+    active: number;
     completed: number;
     cancelled: number;
-    avgDistanceKm: number;
   };
-  deliverySuccessRate: number | null;
+  deliverySuccessRate: number;
   busyWarehouses: {
-    warehouseId: string;
+    id: string;
     name: string;
     orderCount: number;
   }[];
 }
 
-export interface ActiveRouteItem {
-  id: string;
-  driverName: string;
-  driverPhone: string;
-  vehiclePlate: string;
-  vehicleType: string;
-  warehouseName: string;
-  totalStops: number;
-  totalDistanceKm: number | null;
-  estimatedDurationMin: number | null;
-  actualDepartureAt: string | null;
-}
-
-export interface PlannedRouteItem {
-  id: string;
-  driverName: string;
-  driverPhone: string;
-  vehiclePlate: string;
-  vehicleType: string;
-  warehouseName: string;
-  totalStops: number;
-  totalDistanceKm: number | null;
-  estimatedDurationMin: number | null;
-  plannedDepartureAt: string | null;
-}
-
-export interface DispatcherLive {
-  pendingOrderCount: number;
-  availableDriverCount: number;
-  activeRoutes: ActiveRouteItem[];
-  plannedRoutes: PlannedRouteItem[];
-}
-
 export interface OptimizationComparison {
-  greedyDistanceKm: number;
-  randomDistanceKm: number;
-  savingsPercent: number;
-  trials: number;
+  baselineCost?: number;
+  optimizedCost?: number;
+  improvementPercent?: number;
+  initialDistanceKm?: number;
+  optimizedDistanceKm?: number;
+  initialDurationMin?: number;
+  optimizedDurationMin?: number;
 }
 
-export interface OptimizeResult {
-  routesCreated: number;
-  routes: Route[];
-  unassignedOrderCount: number;
-  warning: string | null;
-  comparison?: OptimizationComparison;
-}
-
-export interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  error?: { code: string; message: string };
-}

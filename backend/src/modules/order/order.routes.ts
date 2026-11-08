@@ -8,6 +8,9 @@ import * as orderController from "./order.controller";
 const router = Router();
 const staff = authorize("ADMIN", "DISPATCHER");
 
+router.post("/batch", authenticate, staff, orderController.createBatchOrders);
+router.delete("/clear/pending", authenticate, staff, orderController.clearPendingOrders);
+
 router
   .route("/")
   .get(authenticate, staff, orderController.getAllOrders)

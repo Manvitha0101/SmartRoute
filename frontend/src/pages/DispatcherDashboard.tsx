@@ -76,7 +76,7 @@ function OptimizationResultPanel({ result, drivers, onClose }: {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#15803d', display: 'flex', alignItems: 'center', gap: 8 }}>
-            ✅ Optimization Complete!
+            Routes created
           </div>
           <div style={{ fontSize: '0.85rem', color: '#16a34a', marginTop: 4 }}>
             {result.routesCreated} route{result.routesCreated !== 1 ? 's' : ''} created
@@ -257,11 +257,11 @@ function OptimizePanel({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <span style={{ fontSize: '1.3rem' }}>⚡</span>
         <div>
-          <div style={{ fontWeight: 700, fontSize: '1rem' }}>Route Optimization Engine</div>
+          <div style={{ fontWeight: 700, fontSize: '1rem' }}>Plan a route</div>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginTop: 2 }}>
             {pendingCount > 0
-              ? `${pendingCount} pending order${pendingCount !== 1 ? 's' : ''} ready to be assigned`
-              : 'No pending orders — all orders are assigned'}
+              ? `${pendingCount} order${pendingCount !== 1 ? 's' : ''} waiting`
+              : 'No orders waiting'}
           </div>
         </div>
       </div>
@@ -271,7 +271,7 @@ function OptimizePanel({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* Warehouse selector */}
         <div>
-          <label className="form-label" style={{ marginBottom: 6, display: 'block' }}>🏭 Warehouse Hub</label>
+          <label className="form-label" style={{ marginBottom: 6, display: 'block' }}>Warehouse</label>
           <select className="form-select" value={warehouseId} onChange={e => setWarehouseId(e.target.value)}>
             {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
@@ -351,7 +351,7 @@ function OptimizePanel({
             ? <><span className="spinner" /> Optimizing routes…</>
             : pendingCount === 0
               ? '✓ No pending orders to optimize'
-              : `⚡ Run Optimization (${pendingCount} order${pendingCount !== 1 ? 's' : ''})`}
+              : `Plan route (${pendingCount} order${pendingCount !== 1 ? 's' : ''})`}
         </button>
       </div>
     </div>
@@ -368,8 +368,208 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
   const [routes, setRoutes]         = useState<Route[]>([]);
   const [loading, setLoading]       = useState(true);
   const [optResult, setOptResult]   = useState<OptResult | null>(null);
-  const [orderTab, setOrderTab]     = useState<'PENDING' | 'ASSIGNED' | 'ALL'>('PENDING');
+  const [orderTab, setOrderTab]     = useState<'PENDING' | 'ASSIGNED' | 'DELIVERED' | 'ALL'>('PENDING');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Modals for external data intake
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showAddModal, setShowAddModal]       = useState(false);
+  const [importInput, setImportInput]         = useState('');
+  const [importLoading, setImportLoading]     = useState(false);
+  const [importError, setImportError]         = useState('');
+
+  // Manual single order form state
+  const [singleOrder, setSingleOrder] = useState({
+    customerName: '',
+    address: '',
+    latitude: '17.4401',
+    longitude: '78.3489',
+    packageWeightKg: '5',
+    priority: 'MEDIUM',
+    warehouseId: '',
+  });
+
+  const SAMPLE_FLIPKART_MANIFEST = [
+    {
+      customerName: "Pooja Hegde (Flipkart Express)",
+      address: "Road No. 36, Jubilee Hills, Hyderabad",
+      latitude: 17.4319,
+      longitude: 78.4073,
+      packageWeightKg: 3.5,
+      priority: "HIGH",
+    },
+    {
+      customerName: "Vikram Sethi (Flipkart Assured)",
+      address: "Kondapur Main Road, Near RTO, Hyderabad",
+      latitude: 17.4699,
+      longitude: 78.3578,
+      packageWeightKg: 12.0,
+      priority: "MEDIUM",
+    },
+    {
+      customerName: "Sneha Roy (Flipkart Grocery)",
+      address: "Madhapur Cyber Towers, Hyderabad",
+      latitude: 17.4504,
+      longitude: 78.3808,
+      packageWeightKg: 18.5,
+      priority: "HIGH",
+    },
+    {
+      customerName: "Arjun Kapoor (Flipkart Electronics)",
+      address: "Banjara Hills Road 12, Hyderabad",
+      latitude: 17.4156,
+      longitude: 78.4352,
+      packageWeightKg: 8.0,
+      priority: "MEDIUM",
+    },
+    {
+      customerName: "Divya Sharma (Flipkart Assured)",
+      address: "KPHB Colony 4th Phase, Kukatpally, Hyderabad",
+      latitude: 17.4849,
+      longitude: 78.4011,
+      packageWeightKg: 5.0,
+      priority: "LOW",
+    },
+    {
+      customerName: "Kiran Kumar (Flipkart Supermart)",
+      address: "Financial District, Nanakramguda, Hyderabad",
+      latitude: 17.4198,
+      longitude: 78.3412,
+      packageWeightKg: 22.0,
+      priority: "HIGH",
+    },
+  ];
+
+  const handleLoadSample = () => {
+    setImportInput(JSON.stringify(SAMPLE_FLIPKART_MANIFEST, null, 2));
+    setImportError('');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setImportInput((event.target?.result as string) || '');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleIngestOrders = async () => {
+    setImportError('');
+    if (!importInput.trim()) {
+      setImportError('Please paste JSON or CSV data or load the sample manifest.');
+      return;
+    }
+    const whId = warehouses[0]?.id;
+    if (!whId) {
+      setImportError('No warehouse found. Please create or load a warehouse first.');
+      return;
+    }
+
+    let parsedList: any[] = [];
+    try {
+      if (importInput.trim().startsWith('[') || importInput.trim().startsWith('{')) {
+        const json = JSON.parse(importInput.trim());
+        parsedList = Array.isArray(json) ? json : json.orders || [];
+      } else {
+        // Parse simple CSV
+        const lines = importInput.trim().split('\n').filter(Boolean);
+        const headers = lines[0].split(',').map((h: string) => h.trim().toLowerCase());
+        parsedList = lines.slice(1).map((line: string) => {
+          const vals = line.split(',').map((v: string) => v.trim());
+          const o: any = {};
+          headers.forEach((h: string, idx: number) => { o[h] = vals[idx]; });
+          return {
+            customerName: o.customername || o.customer || o.name || 'Customer',
+            address: o.address || 'Hyderabad',
+            latitude: parseFloat(o.latitude || o.lat || '17.44'),
+            longitude: parseFloat(o.longitude || o.lng || o.lon || '78.34'),
+            packageWeightKg: parseFloat(o.packageweightkg || o.weightkg || o.weight || '5'),
+            priority: o.priority ? o.priority.toUpperCase() : 'MEDIUM',
+          };
+        });
+      }
+    } catch (err: any) {
+      setImportError('Failed to parse input: ' + err.message);
+      return;
+    }
+
+    if (parsedList.length === 0) {
+      setImportError('No valid orders found in input.');
+      return;
+    }
+
+    const payload = parsedList.map((item) => ({
+      customerName: item.customerName || 'Customer',
+      address: item.address || 'Hyderabad',
+      latitude: Number(item.latitude) || 17.4401,
+      longitude: Number(item.longitude) || 78.3489,
+      weightKg: Number(item.packageWeightKg || item.weightKg || 5),
+      priority: item.priority || 'MEDIUM',
+      warehouseId: whId,
+    }));
+
+    setImportLoading(true);
+    try {
+      const res = await api.createBatchOrders(payload);
+      setShowImportModal(false);
+      setImportInput('');
+      await loadAll(true);
+      alert(`Successfully ingested ${res.count} orders from client manifest!`);
+    } catch (err: any) {
+      setImportError(err.message || 'Batch ingestion failed');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleClearPending = async () => {
+    if (!confirm('Are you sure you want to clear all pending unassigned orders to start from scratch?')) {
+      return;
+    }
+    try {
+      const res = await api.clearPendingOrders();
+      await loadAll(true);
+      alert(`Cleared ${res.count} pending orders.`);
+    } catch (err: any) {
+      alert('Failed to clear orders: ' + err.message);
+    }
+  };
+
+  const handleCreateSingle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const whId = singleOrder.warehouseId || warehouses[0]?.id;
+    if (!whId) {
+      alert('No warehouse available.');
+      return;
+    }
+    try {
+      await api.createOrder({
+        customerName: singleOrder.customerName,
+        address: singleOrder.address,
+        latitude: parseFloat(singleOrder.latitude),
+        longitude: parseFloat(singleOrder.longitude),
+        weightKg: parseFloat(singleOrder.packageWeightKg),
+        priority: singleOrder.priority as any,
+        warehouseId: whId,
+      } as any);
+      setShowAddModal(false);
+      setSingleOrder({
+        customerName: '',
+        address: '',
+        latitude: '17.4401',
+        longitude: '78.3489',
+        packageWeightKg: '5',
+        priority: 'MEDIUM',
+        warehouseId: '',
+      });
+      await loadAll(true);
+      alert('Order created successfully!');
+    } catch (err: any) {
+      alert('Failed to create order: ' + err.message);
+    }
+  };
 
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); else setRefreshing(true);
@@ -412,11 +612,13 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
 
   const pendingOrders   = orders.filter(o => o.status === 'PENDING');
   const assignedOrders  = orders.filter(o => o.status === 'ASSIGNED');
+  const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
   const activeRoutes    = routes.filter(r => r.status === 'IN_PROGRESS');
   const plannedRoutes   = routes.filter(r => r.status === 'PLANNED');
 
   const displayOrders = orderTab === 'PENDING' ? pendingOrders
                       : orderTab === 'ASSIGNED' ? assignedOrders
+                      : orderTab === 'DELIVERED' ? deliveredOrders
                       : orders;
 
   // Route driver name lookup
@@ -428,50 +630,55 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{
-                background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', color: '#fff',
-                fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em',
-                textTransform: 'uppercase', padding: '3px 8px', borderRadius: 6,
-              }}>Dispatcher</span>
-            </div>
-            <h2 className="page-title">Live Operations Control</h2>
-            <p className="page-subtitle">Incoming orders → Assign drivers → Optimize routes → Monitor deliveries</p>
+            <h2 className="page-title">Dispatch Control Center</h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-3)', margin: '4px 0 0' }}>
+              B2B logistics pipeline: Ingest partner order manifests &amp; plan optimized delivery routes
+            </p>
           </div>
-          <button className="btn btn-outline btn-sm" onClick={() => loadAll(true)} disabled={refreshing}>
-            {refreshing ? <><span className="spinner spinner-dark" /> Syncing…</> : '🔄 Refresh'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowImportModal(true)} style={{ background: '#0284c7' }}>
+              📥 Ingest Partner Manifest
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => setShowAddModal(true)}>
+              ➕ Add Order
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={handleClearPending} style={{ color: '#dc2626', borderColor: '#fca5a5' }}>
+              🗑️ Clear Pending
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => loadAll(true)} disabled={refreshing}>
+              {refreshing ? <><span className="spinner spinner-dark" /> Syncing…</> : '🔄 Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ── KPI strip ── */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: 24 }}>
         <div className="stat-card" style={{ borderLeft: '3px solid var(--red)' }}>
-          <div className="stat-label">📦 Pending Orders</div>
+          <div className="stat-label">Waiting</div>
           <div className="stat-value" style={{ color: pendingOrders.length > 0 ? 'var(--red)' : 'var(--green-700)' }}>
             {pendingOrders.length}
           </div>
-          <div className="stat-sub">{pendingOrders.length > 0 ? 'Awaiting assignment' : 'All assigned ✓'}</div>
         </div>
         <div className="stat-card" style={{ borderLeft: '3px solid var(--blue)' }}>
-          <div className="stat-label">📋 Assigned Orders</div>
+          <div className="stat-label">Assigned</div>
           <div className="stat-value" style={{ color: 'var(--blue)' }}>{assignedOrders.length}</div>
-          <div className="stat-sub">En route to customers</div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '3px solid #16a34a' }}>
+          <div className="stat-label">Delivered</div>
+          <div className="stat-value" style={{ color: '#16a34a' }}>{deliveredOrders.length}</div>
         </div>
         <div className="stat-card" style={{ borderLeft: '3px solid #22c55e' }}>
-          <div className="stat-label">🟢 Active Routes</div>
+          <div className="stat-label">On the road</div>
           <div className="stat-value" style={{ color: '#22c55e' }}>{activeRoutes.length}</div>
-          <div className="stat-sub">Drivers on road now</div>
         </div>
         <div className="stat-card" style={{ borderLeft: '3px solid var(--amber)' }}>
-          <div className="stat-label">🟡 Planned Routes</div>
+          <div className="stat-label">Planned</div>
           <div className="stat-value amber">{plannedRoutes.length}</div>
-          <div className="stat-sub">Ready to dispatch</div>
         </div>
         <div className="stat-card" style={{ borderLeft: '3px solid #a78bfa' }}>
-          <div className="stat-label">👤 Drivers</div>
+          <div className="stat-label">Drivers</div>
           <div className="stat-value" style={{ color: '#7c3aed' }}>{drivers.length}</div>
-          <div className="stat-sub">In fleet registry</div>
         </div>
       </div>
 
@@ -483,8 +690,8 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
           {/* Section header + tabs */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ fontWeight: 700, fontSize: '1rem', margin: 0 }}>📦 Incoming Orders</h3>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {(['PENDING', 'ASSIGNED', 'ALL'] as const).map(tab => (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {(['PENDING', 'ASSIGNED', 'DELIVERED', 'ALL'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setOrderTab(tab)}
@@ -492,22 +699,18 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
                     padding: '4px 12px', border: 'none', borderRadius: 6,
                     cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
                     fontFamily: 'var(--font-sans)',
-                    background: orderTab === tab ? (tab === 'PENDING' ? '#dc2626' : tab === 'ASSIGNED' ? '#2563eb' : 'var(--green-700)') : 'var(--surface-2)',
+                    background: orderTab === tab
+                      ? (tab === 'PENDING' ? '#dc2626' : tab === 'ASSIGNED' ? '#2563eb' : tab === 'DELIVERED' ? '#16a34a' : 'var(--green-700)')
+                      : 'var(--surface-2)',
                     color: orderTab === tab ? '#fff' : 'var(--text-2)',
                     transition: 'all 0.15s',
                   }}
                 >
-                  {tab === 'PENDING' ? `Pending (${pendingOrders.length})` : tab === 'ASSIGNED' ? `Assigned (${assignedOrders.length})` : `All (${orders.length})`}
+                  {tab === 'PENDING' ? `Pending (${pendingOrders.length})` : tab === 'ASSIGNED' ? `Assigned (${assignedOrders.length})` : tab === 'DELIVERED' ? `Delivered (${deliveredOrders.length})` : `All (${orders.length})`}
                 </button>
               ))}
             </div>
           </div>
-
-          {pendingOrders.length > 0 && orderTab === 'PENDING' && (
-            <div className="alert alert-warning" style={{ marginBottom: 12, fontSize: '0.83rem' }}>
-              ⚠️ <strong>{pendingOrders.length} orders</strong> need route assignment. Use the optimization panel on the right →
-            </div>
-          )}
 
           {displayOrders.length === 0 ? (
             <div className="empty-state" style={{ padding: '36px 20px' }}>
@@ -620,6 +823,168 @@ export default function DispatcherDashboard({ onNavigate }: DispatcherDashboardP
           )}
         </div>
       </div>
+
+      {/* ── Modal: Ingest Partner Manifest ── */}
+      {showImportModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 14, width: '100%', maxWidth: 640,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)', padding: 24, maxHeight: '90vh', overflowY: 'auto',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700 }}>📥 Ingest Partner Manifest (Flipkart / OMS)</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-3)' }}>
+                  Upload CSV/JSON order batch from third-party e-commerce platform
+                </p>
+              </div>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowImportModal(false)}>✕</button>
+            </div>
+
+            {importError && <div className="alert alert-error" style={{ marginBottom: 12 }}>{importError}</div>}
+
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <button className="btn btn-outline btn-sm" type="button" onClick={handleLoadSample} style={{ background: '#f0fdf4', color: '#16a34a', borderColor: '#86efac' }}>
+                ⚡ Load Flipkart Express Manifest Sample
+              </button>
+              <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer' }}>
+                📁 Upload File (CSV / JSON)
+                <input type="file" accept=".csv,.json,text/plain" onChange={handleFileUpload} style={{ display: 'none' }} />
+              </label>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label className="form-label" style={{ marginBottom: 6, display: 'block' }}>
+                Manifest Payload (JSON Array or CSV rows with customerName, address, lat, lng, weightKg, priority)
+              </label>
+              <textarea
+                rows={9}
+                className="form-input"
+                style={{ fontFamily: 'monospace', fontSize: '0.82rem', width: '100%' }}
+                placeholder='[{"customerName": "Rohan (Flipkart)", "address": "Madhapur", "latitude": 17.448, "longitude": 78.381, "packageWeightKg": 4.5, "priority": "HIGH"}]'
+                value={importInput}
+                onChange={e => setImportInput(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button className="btn btn-outline" type="button" onClick={() => setShowImportModal(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="button" onClick={handleIngestOrders} disabled={importLoading} style={{ background: '#0284c7' }}>
+                {importLoading ? <><span className="spinner" /> Ingesting…</> : '📥 Ingest Manifest into Queue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Add Single Order ── */}
+      {showAddModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)', padding: 24, maxHeight: '90vh', overflowY: 'auto',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700 }}>➕ Add Single Order</h3>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowAddModal(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleCreateSingle}>
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label className="form-label">Customer Name</label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  placeholder="e.g. Rahul Sharma"
+                  value={singleOrder.customerName}
+                  onChange={e => setSingleOrder({ ...singleOrder, customerName: e.target.value })}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label className="form-label">Delivery Address</label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  placeholder="e.g. Hitech City Road, Hyderabad"
+                  value={singleOrder.address}
+                  onChange={e => setSingleOrder({ ...singleOrder, address: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Latitude</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    required
+                    className="form-input"
+                    value={singleOrder.latitude}
+                    onChange={e => setSingleOrder({ ...singleOrder, latitude: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Longitude</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    required
+                    className="form-input"
+                    value={singleOrder.longitude}
+                    onChange={e => setSingleOrder({ ...singleOrder, longitude: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <div className="form-group">
+                  <label className="form-label">Package Weight (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    className="form-input"
+                    value={singleOrder.packageWeightKg}
+                    onChange={e => setSingleOrder({ ...singleOrder, packageWeightKg: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Priority</label>
+                  <select
+                    className="form-select"
+                    value={singleOrder.priority}
+                    onChange={e => setSingleOrder({ ...singleOrder, priority: e.target.value })}
+                  >
+                    <option value="HIGH">HIGH (Urgent)</option>
+                    <option value="MEDIUM">MEDIUM (Standard)</option>
+                    <option value="LOW">LOW (Bulk)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-outline" type="button" onClick={() => setShowAddModal(false)}>
+                  Cancel
+                </button>
+                <button className="btn btn-primary" type="submit">
+                  Create Order
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

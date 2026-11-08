@@ -17,8 +17,9 @@ const REFRESH_COOKIE_OPTIONS = {
 };
 
 export const register = asyncHandler(async (req: Request, res: Response) => {
-  const user = await authService.register(req.body);
-  res.status(201).json(successResponse(user));
+  const { accessToken, refreshToken, user } = await authService.register(req.body);
+  res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTIONS);
+  res.status(201).json(successResponse({ accessToken, user }));
 });
 
 export const login = asyncHandler(async (req: Request, res: Response) => {

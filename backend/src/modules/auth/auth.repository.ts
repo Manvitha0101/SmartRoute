@@ -33,9 +33,10 @@ export type UserWithHash = UserRecord & {
 export const findUserByEmail = async (
   email: string
 ): Promise<UserWithHash | null> => {
-  return prisma.user.findFirst({
+  const clean = email.trim();
+  const user = await prisma.user.findFirst({
     where: {
-      email,
+      email: clean,
       deletedAt: null, // Never return soft-deleted users
     },
     select: {
@@ -46,6 +47,34 @@ export const findUserByEmail = async (
       createdAt: true,
     },
   });
+
+  if (user) return user;
+
+  // Also support login by Driver Phone number (matches last 10 digits)
+  const digitsOnly = clean.replace(/\D/g, "");
+  if (digitsOnly.length >= 10) {
+    const last10 = digitsOnly.slice(-10);
+    const drivers = await prisma.driver.findMany({
+      where: { userId: { not: null } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            passwordHash: true,
+            role: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    const match = drivers.find(d => d.phone.replace(/\D/g, "").endsWith(last10));
+    if (match?.user) {
+      return match.user;
+    }
+  }
+
+  return null;
 };
 
 export const findUserById = async (

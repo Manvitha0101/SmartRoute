@@ -13,6 +13,7 @@
  */
 
 import { Request, Response, NextFunction } from "express";
+import { Prisma } from "@prisma/client";
 import { AppError } from "../utils/AppError";
 import { ValidationError } from "./validate";
 import { errorResponse } from "../utils/apiResponse";
@@ -42,6 +43,17 @@ export const errorHandler = (
   if (err instanceof AppError && err.isOperational) {
     return res.status(err.statusCode).json(
       errorResponse(err.code, err.message)
+    );
+  }
+
+  if (
+    err instanceof Prisma.PrismaClientInitializationError ||
+    err instanceof Prisma.PrismaClientKnownRequestError ||
+    /database server|SQLITE_|Can't reach database/i.test(err.message)
+  ) {
+    console.error("DATABASE ERROR:", err.message);
+    return res.status(503).json(
+      errorResponse("DATABASE_UNAVAILABLE", "The database is unavailable. Try again in a moment.")
     );
   }
 

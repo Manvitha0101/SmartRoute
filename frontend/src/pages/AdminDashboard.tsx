@@ -2,11 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import * as api from '../api';
 import type { AnalyticsSummary } from '../types';
 
-interface AdminDashboardProps {
-  onNavigate?: (page: 'dashboard' | 'orders' | 'routes' | 'drivers') => void;
-}
-
-export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
+export default function AdminDashboard() {
   const [data, setData] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,7 +49,6 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
   if (!data) return null;
 
   const { orders, routes, deliverySuccessRate, busyWarehouses } = data;
-  const attempted = orders.delivered + orders.failed;
   const fulfillmentRate = orders.total > 0 ? Math.round((orders.delivered / orders.total) * 100) : 0;
 
   return (
@@ -62,20 +57,7 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-              <span style={{
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                color: '#fff',
-                fontSize: '0.65rem',
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                padding: '3px 8px',
-                borderRadius: 6,
-              }}>Admin View</span>
-            </div>
-            <h2 className="page-title">Executive Overview</h2>
-            <p className="page-subtitle">Strategic fleet performance, fulfilment KPIs, and warehouse insights.</p>
+            <h2 className="page-title">Overview</h2>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <button
@@ -93,31 +75,29 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
       {/* ── Top KPI Cards ── */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
         <div className="stat-card">
-          <div className="stat-label">Total Orders</div>
+          <div className="stat-label">Orders</div>
           <div className="stat-value">{orders.total}</div>
-          <div className="stat-sub">All-time across network</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Order Fulfillment</div>
+          <div className="stat-label">Delivered</div>
           <div className="stat-value green">{fulfillmentRate}%</div>
-          <div className="stat-sub">{orders.delivered} delivered / {orders.total} total</div>
+          <div className="stat-sub">{orders.delivered} of {orders.total}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Delivery Success</div>
+          <div className="stat-label">Success rate</div>
           <div className="stat-value" style={{ color: deliverySuccessRate !== null && deliverySuccessRate >= 90 ? 'var(--green-700)' : 'var(--amber)' }}>
             {deliverySuccessRate !== null ? `${deliverySuccessRate}%` : '—'}
           </div>
-          <div className="stat-sub">Of attempted deliveries</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Total Routes Run</div>
+          <div className="stat-label">Routes</div>
           <div className="stat-value">{routes.total}</div>
-          <div className="stat-sub">{routes.completed} completed · {routes.cancelled} cancelled</div>
+          <div className="stat-sub">{routes.completed} completed</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Avg Route Distance</div>
+          <div className="stat-label">Avg distance</div>
           <div className="stat-value" style={{ color: 'var(--blue)' }}>{routes.avgDistanceKm > 0 ? `${routes.avgDistanceKm}` : '0'}</div>
-          <div className="stat-sub">km per completed route</div>
+          <div className="stat-sub">km</div>
         </div>
       </div>
 
@@ -128,15 +108,14 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
           {/* Fleet Status Breakdown */}
           <div className="card">
             <div className="section-header">
-              <span className="section-title">🚚 Fleet Status Breakdown</span>
-              <span className="badge badge-planned">{routes.total} Routes Total</span>
+              <span className="section-title">Routes</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
-                { label: 'Planned (Ready to Dispatch)', value: routes.planned, color: 'var(--amber)', pct: routes.total ? Math.round((routes.planned / routes.total) * 100) : 0 },
-                { label: 'In Progress (On Road)',       value: routes.inProgress, color: 'var(--blue)', pct: routes.total ? Math.round((routes.inProgress / routes.total) * 100) : 0 },
-                { label: 'Completed Successfully',      value: routes.completed, color: 'var(--green-700)', pct: routes.total ? Math.round((routes.completed / routes.total) * 100) : 0 },
-                { label: 'Cancelled / Abandoned',       value: routes.cancelled, color: 'var(--text-3)', pct: routes.total ? Math.round((routes.cancelled / routes.total) * 100) : 0 },
+                { label: 'Planned', value: routes.planned, color: 'var(--amber)', pct: routes.total ? Math.round((routes.planned / routes.total) * 100) : 0 },
+                { label: 'On the road', value: routes.inProgress, color: 'var(--blue)', pct: routes.total ? Math.round((routes.inProgress / routes.total) * 100) : 0 },
+                { label: 'Completed', value: routes.completed, color: 'var(--green-700)', pct: routes.total ? Math.round((routes.completed / routes.total) * 100) : 0 },
+                { label: 'Cancelled', value: routes.cancelled, color: 'var(--text-3)', pct: routes.total ? Math.round((routes.cancelled / routes.total) * 100) : 0 },
               ].map(r => (
                 <div key={r.label}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', marginBottom: 4 }}>
@@ -157,15 +136,15 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
           {/* Order Pipeline */}
           <div className="card">
             <div className="section-header">
-              <span className="section-title">📦 Order Pipeline</span>
+              <span className="section-title">Orders</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                { label: 'Pending (Awaiting Dispatch)', value: orders.pending, color: 'var(--amber)' },
-                { label: 'Assigned (En Route)',         value: orders.assigned, color: 'var(--blue)' },
-                { label: 'Delivered',                  value: orders.delivered, color: 'var(--green-700)' },
-                { label: 'Failed Deliveries',           value: orders.failed, color: 'var(--red)' },
-                { label: 'Cancelled by Customer',       value: orders.cancelled, color: 'var(--text-3)' },
+                { label: 'Waiting', value: orders.pending, color: 'var(--amber)' },
+                { label: 'Assigned', value: orders.assigned, color: 'var(--blue)' },
+                { label: 'Delivered', value: orders.delivered, color: 'var(--green-700)' },
+                { label: 'Failed', value: orders.failed, color: 'var(--red)' },
+                { label: 'Cancelled', value: orders.cancelled, color: 'var(--text-3)' },
               ].map(o => (
                 <div key={o.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
                   <span style={{ color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -177,70 +156,16 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
               ))}
             </div>
           </div>
-
-          {/* Quick Links */}
-          <div className="card">
-            <div className="section-header">
-              <span className="section-title">⚡ Admin Quick Actions</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {onNavigate && (
-                <>
-                  <button
-                    className="btn btn-outline"
-                    style={{ justifyContent: 'flex-start', gap: 10 }}
-                    onClick={() => onNavigate('orders')}
-                  >
-                    📦 Manage All Orders
-                  </button>
-                  <button
-                    className="btn btn-outline"
-                    style={{ justifyContent: 'flex-start', gap: 10 }}
-                    onClick={() => onNavigate('routes')}
-                  >
-                    🗺️ View & Manage Routes
-                  </button>
-                  <button
-                    className="btn btn-outline"
-                    style={{ justifyContent: 'flex-start', gap: 10 }}
-                    onClick={() => onNavigate('drivers')}
-                  >
-                    🚚 Fleet & Driver Registry
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
         </div>
 
-        {/* Right: Warehouse leaderboard + Delivery success */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Success Ring */}
           <div className="card">
             <div className="section-header">
-              <span className="section-title">📊 Delivery Success Rate</span>
-            </div>
-            <div className="success-rate-ring">
-              <div className="rate-value">
-                {deliverySuccessRate !== null ? `${deliverySuccessRate}%` : '—'}
-              </div>
-              <div className="rate-label">
-                {deliverySuccessRate !== null
-                  ? `${orders.delivered} delivered of ${attempted} attempted`
-                  : 'No delivery attempts yet'}
-              </div>
-            </div>
-          </div>
-
-          {/* Warehouse Leaderboard */}
-          <div className="card" style={{ flex: 1 }}>
-            <div className="section-header">
-              <span className="section-title">🏭 Top Warehouses by Volume</span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>By order count</span>
+              <span className="section-title">Warehouses</span>
             </div>
             {busyWarehouses.length === 0 ? (
               <p style={{ fontSize: '0.875rem', color: 'var(--text-3)', padding: '12px 0' }}>
-                No warehouse activity recorded yet.
+                No orders yet.
               </p>
             ) : (
               busyWarehouses.map((w, i) => (
@@ -263,18 +188,6 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
               ))
             )}
           </div>
-
-          {/* Summary insight callout */}
-          {orders.failed > 0 && (
-            <div className="alert alert-error" style={{ fontSize: '0.875rem' }}>
-              <strong>⚠️ Attention:</strong> {orders.failed} failed {orders.failed === 1 ? 'delivery' : 'deliveries'} require review. Check route history for details.
-            </div>
-          )}
-          {orders.pending > 5 && (
-            <div className="alert alert-warning" style={{ fontSize: '0.875rem' }}>
-              <strong>📋 Queue Alert:</strong> {orders.pending} orders are pending dispatch. Ask your dispatcher to run route optimization.
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -23,30 +23,43 @@ This is a **portfolio / campus project**, not a production TMS. Distance uses Ha
 |---|---|
 | Frontend | React + TypeScript + Vite + Leaflet |
 | Backend | Node.js + Express + TypeScript |
-| Database | PostgreSQL + Prisma ORM |
-| Auth | JWT access tokens + httpOnly refresh cookies, role RBAC |
-| Deploy | Vercel (frontend) · Render (backend + DB) |
+| Database | SQLite (created automatically, no separate server) |
+| Auth | JWT, three demo roles |
 
 ---
 
-## Try the live app
+## Try it
 
-1. Open [smartroute-app-v1.vercel.app](https://smartroute-app-v1.vercel.app)
-2. **Login as Dispatcher** → pending Hyderabad orders → Run Optimization → Map & Stops
-3. **Login as Driver** → Suresh Reddy's assigned routes
-4. **Login as Admin** → KPIs
+Open the app and choose **Dispatcher**, **Admin**, or **Driver**.
 
----
-
-## Demo accounts
-
-| Role | Email | Password |
-|---|---|---|
-| Dispatcher | dispatcher@smartroute.io | Password@123 |
-| Admin | admin@smartroute.io | Password@123 |
-| Driver | driver@smartroute.io | Password@123 |
+- **Dispatcher** — waiting Hyderabad orders, then Plan route
+- **Driver** — Suresh Reddy’s current trip
+- **Admin** — order and route counts
 
 ---
+
+## Run locally
+
+Node 18+ is enough. No Docker or Postgres.
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend: http://localhost:5174  
+API: http://localhost:3000
+
+The first start creates `backend/data/smartroute.db` and loads the demo.
+
+The hosted site at smartroute-app-v1.vercel.app still points at the old Render API. That API’s Postgres server is offline, so sign-in there fails until this backend is redeployed (`npm start` in `backend` on Render).
 
 ## Algorithm (honest)
 
@@ -67,35 +80,7 @@ npm run benchmark
 
 ---
 
-## Run locally
-
-**Prerequisites:** Node 18+, PostgreSQL (or `docker compose up -d` for PostGIS on port 5433)
-
-### Backend
-
-```bash
-cd backend
-npm install
-cp .env.example .env      # DATABASE_URL, JWT secrets
-npx prisma migrate deploy
-npm run db:seed
-npm run dev               # http://localhost:3000
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-cp .env.example .env      # VITE_API_URL=http://localhost:3000/api/v1
-npm run dev               # http://localhost:5173
-```
-
----
-
 ## Key API endpoints
-
-| Method | Endpoint | Who |
 |---|---|---|
 | POST | /api/v1/auth/login | Public |
 | GET | /api/v1/orders | Admin, Dispatcher |
@@ -124,3 +109,6 @@ SmartRoute/
 
 ---
 
+## Resume one-liner
+
+> Full-stack fleet dispatch system with capacity-aware nearest-neighbor VRP, JWT role RBAC (Admin / Dispatcher / Driver), Leaflet route maps, and measured distance savings vs random assignment (React, Node, Prisma, Postgres).

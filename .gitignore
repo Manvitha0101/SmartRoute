@@ -1,4 +1,6 @@
-# ─── Dependencies ─────────────────────────────────────────────────────────────
+# Local PostgreSQL cluster
+pgdata/
+
 node_modules/
 __pycache__/
 *.pyc
@@ -27,6 +29,10 @@ backend/src/generated/prisma/
 Thumbs.db
 .idea/
 .vscode/settings.json
+
+# ─── Local demo database ──────────────────────────────────────────────────────
+backend/data/*.db
+backend/data/*.db-journal
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 *.log

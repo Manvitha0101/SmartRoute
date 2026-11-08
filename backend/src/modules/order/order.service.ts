@@ -153,3 +153,37 @@ export const deleteOrder = async (id: string) => {
 
   await orderRepo.softDeleteOrder(id);
 };
+
+export const createBatchOrders = async (ordersList: CreateOrderInput[]) => {
+  const { prisma } = await import("../../prisma/client");
+  const created = await prisma.$transaction(
+    ordersList.map((data) =>
+      prisma.order.create({
+        data: {
+          customerName: data.customerName,
+          address: data.address,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          priority: data.priority,
+          earliestDelivery: data.earliestDelivery,
+          latestDelivery: data.latestDelivery,
+          weightKg: data.weightKg,
+          warehouseId: data.warehouseId,
+          status: "PENDING",
+        },
+      })
+    )
+  );
+  return created;
+};
+
+export const clearPendingOrders = async () => {
+  const { prisma } = await import("../../prisma/client");
+  const result = await prisma.order.deleteMany({
+    where: {
+      status: "PENDING",
+      routeStops: { none: {} },
+    },
+  });
+  return result;
+};

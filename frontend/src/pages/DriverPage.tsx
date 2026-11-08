@@ -44,12 +44,18 @@ function PriorityBadge({ p }: { p: string }) {
   );
 }
 
-function RouteDetailCard({ route, onAction, actionLoading, canCancel }: {
+function RouteDetailCard({ route, onAction, onStopAction, actionLoading, canCancel }: {
   route: Route;
   onAction: (routeId: string, action: 'start' | 'complete' | 'cancel') => void;
+  onStopAction: (routeId: string, stopId: string, status: 'COMPLETED' | 'FAILED') => Promise<void>;
   actionLoading: boolean;
   canCancel: boolean;
 }) {
+  const [podStop, setPodStop] = useState<any | null>(null);
+  const [podRecipient, setPodRecipient] = useState('Customer in person');
+  const [podPin, setPodPin] = useState('1234');
+  const [podNotes, setPodNotes] = useState('Handed over safely');
+
   const stops = route.stops ?? [];
   const completed = stops.filter(s => s.status === 'COMPLETED').length;
   const progressPct = stops.length > 0 ? Math.round((completed / stops.length) * 100) : 0;
@@ -209,6 +215,37 @@ function RouteDetailCard({ route, onAction, actionLoading, canCancel }: {
                             </span>
                           )}
                         </div>
+
+                        {/* Interactive Proof of Delivery / Stop Status Action */}
+                        {route.status === 'IN_PROGRESS' && !isDone && !isFailed && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              style={{ background: '#16a34a', padding: '3px 10px', fontSize: '0.76rem', borderRadius: 6 }}
+                              onClick={() => setPodStop(stop)}
+                              disabled={actionLoading}
+                            >
+                              ✓ Mark Delivered (POD)
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              style={{ borderColor: '#dc2626', color: '#dc2626', padding: '3px 8px', fontSize: '0.76rem', borderRadius: 6 }}
+                              onClick={() => onStopAction(route.id, stop.id, 'FAILED')}
+                              disabled={actionLoading}
+                            >
+                              ✗ Delivery Failed
+                            </button>
+                          </div>
+                        )}
+
+                        {isDone && (
+                          <div style={{ marginTop: 6, fontSize: '0.75rem', color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span>✓ Delivered &amp; Verified</span>
+                            <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· Synced with Dispatcher</span>
+                          </div>
+                        )}
                       </div>
                       <StatusBadge s={stop.status} />
                     </div>
@@ -221,6 +258,93 @@ function RouteDetailCard({ route, onAction, actionLoading, canCancel }: {
       ) : (
         <div style={{ padding: '20px', color: 'var(--text-3)', fontSize: '0.875rem' }}>
           No stops loaded for this route.
+        </div>
+      )}
+      {/* ── Proof of Delivery (POD) Modal ── */}
+      {podStop && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 14, width: '100%', maxWidth: 440,
+            padding: 22, boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>📦 Proof of Delivery (POD)</h3>
+                <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: 'var(--text-3)' }}>
+                  Verify delivery before updating Dispatcher Control
+                </p>
+              </div>
+              <button className="btn btn-outline btn-sm" onClick={() => setPodStop(null)}>✕</button>
+            </div>
+
+            <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, marginBottom: 14, border: '1px solid #e2e8f0' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{podStop.order?.customerName}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-2)', marginTop: 2 }}>📍 {podStop.order?.address}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginTop: 4 }}>
+                Package: {podStop.order?.weightKg} kg · Stop #{podStop.stopSequence}
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: 4, display: 'block' }}>Handed Over To</label>
+              <select
+                className="form-select"
+                style={{ width: '100%' }}
+                value={podRecipient}
+                onChange={e => setPodRecipient(e.target.value)}
+              >
+                <option value="Customer in person">Customer in person (Signed)</option>
+                <option value="Security Desk / Reception">Security Desk / Gate Reception</option>
+                <option value="Family Member / Neighbor">Family Member / Neighbor</option>
+                <option value="Doorstep (Contactless)">Doorstep (Contactless drop)</option>
+              </select>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: 4, display: 'block' }}>Customer Verification OTP / PIN</label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '100%' }}
+                placeholder="e.g. 4-digit PIN (1234)"
+                value={podPin}
+                onChange={e => setPodPin(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: 4, display: 'block' }}>Driver Delivery Notes</label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '100%' }}
+                placeholder="e.g. Package handed over safely with receipt"
+                value={podNotes}
+                onChange={e => setPodNotes(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button className="btn btn-outline" type="button" onClick={() => setPodStop(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                style={{ background: '#16a34a' }}
+                onClick={async () => {
+                  const targetStopId = podStop.id;
+                  setPodStop(null);
+                  await onStopAction(route.id, targetStopId, 'COMPLETED');
+                }}
+              >
+                ✓ Confirm &amp; Complete Delivery
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -321,6 +445,22 @@ export default function DriverPage() {
     }
   };
 
+  const handleStopAction = async (routeId: string, stopId: string, status: 'COMPLETED' | 'FAILED') => {
+    setActionLoading(true);
+    try {
+      await api.updateStopStatus(routeId, stopId, {
+        status,
+        actualArrival: new Date().toISOString(),
+      });
+      showToast(status === 'COMPLETED' ? '✓ Delivery verified & completed! Live status synced.' : 'Stop marked as failed.');
+      await loadAll();
+    } catch (e: any) {
+      showToast(e instanceof ApiError ? e.message : 'Failed to update stop status.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const selectedDriver = drivers.find(d => d.id === selectedDriverId);
 
   if (loading) {
@@ -348,12 +488,7 @@ export default function DriverPage() {
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <h2 className="page-title">{isDriverLogin ? 'My Routes' : 'Driver Portal'}</h2>
-            <p className="page-subtitle">
-              {isDriverLogin
-                ? 'Your assigned stops, map, and trip controls'
-                : 'Select a driver to view allocated routes and delivery stops'}
-            </p>
+            <h2 className="page-title">{isDriverLogin ? 'My trip' : 'Drivers'}</h2>
           </div>
           <button className="btn btn-outline btn-sm" onClick={loadAll}>Refresh</button>
         </div>
@@ -363,7 +498,7 @@ export default function DriverPage() {
         <div className="empty-state">
           <p style={{ fontWeight: 600 }}>No Drivers Found</p>
           <p style={{ color: 'var(--text-3)', fontSize: '0.875rem', marginTop: 4 }}>
-            Add drivers via seed or admin API.
+            No drivers are set up.
           </p>
         </div>
       ) : (
@@ -443,6 +578,7 @@ export default function DriverPage() {
                   key={route.id}
                   route={route}
                   onAction={handleAction}
+                  onStopAction={handleStopAction}
                   actionLoading={actionLoading}
                   canCancel={!isDriverLogin}
                 />

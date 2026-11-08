@@ -1,84 +1,144 @@
 import { api } from './client';
-import type { AuthResponse, Order, Warehouse, Vehicle, Driver, Route, RouteStop, AnalyticsSummary, DispatcherLive, OptimizeResult } from '../types';
+import type {
+  User,
+  Warehouse,
+  Vehicle,
+  Driver,
+  Order,
+  Route,
+  AnalyticsSummary,
+  OptimizationComparison,
+} from '../types';
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
-export const login = (email: string, password: string) =>
-  api.post<AuthResponse>('/auth/login', { email, password });
+export interface LoginResponse {
+  accessToken: string;
+  user: User;
+}
 
-export const googleLogin = (payload: { credential?: string; email?: string; name?: string; role?: string }) =>
-  api.post<AuthResponse>('/auth/google', payload);
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  return api.post<LoginResponse>('/auth/login', { email, password });
+}
 
-export const logout = (refreshToken: string) =>
-  api.post<void>('/auth/logout', { refreshToken });
-
-// ── Analytics ──────────────────────────────────────────────────────────────────
-export const getAnalyticsSummary = () =>
-  api.get<AnalyticsSummary>('/analytics/summary');
-
-export const getDispatcherLive = () =>
-  api.get<DispatcherLive>('/analytics/dispatcher/live');
+export async function register(data: {
+  email: string;
+  password: string;
+  role: 'ADMIN' | 'DISPATCHER' | 'DRIVER';
+  name?: string;
+  phone?: string;
+}): Promise<LoginResponse> {
+  return api.post<LoginResponse>('/auth/register', data);
+}
 
 // ── Warehouses ─────────────────────────────────────────────────────────────────
-export const getWarehouses = () =>
-  api.get<Warehouse[]>('/warehouses');
+export async function getWarehouses(): Promise<Warehouse[]> {
+  return api.get<Warehouse[]>('/warehouses');
+}
 
 // ── Vehicles ───────────────────────────────────────────────────────────────────
-export const getVehicles = () =>
-  api.get<Vehicle[]>('/vehicles');
+export async function getVehicles(): Promise<Vehicle[]> {
+  return api.get<Vehicle[]>('/vehicles');
+}
 
 // ── Drivers ────────────────────────────────────────────────────────────────────
-export const getDrivers = () =>
-  api.get<Driver[]>('/drivers');
+export async function getDrivers(): Promise<Driver[]> {
+  return api.get<Driver[]>('/drivers');
+}
 
-export const getDriverById = (id: string) =>
-  api.get<Driver>(`/drivers/${id}`);
-
-export const getMyDriverProfile = () =>
-  api.get<Driver>('/drivers/me');
+export async function getMyDriverProfile(): Promise<Driver> {
+  return api.get<Driver>('/drivers/me');
+}
 
 // ── Orders ─────────────────────────────────────────────────────────────────────
-export const getOrders = (params?: { status?: string; priority?: string; warehouseId?: string }) => {
-  const query = new URLSearchParams();
-  if (params?.status) query.set('status', params.status);
-  if (params?.priority) query.set('priority', params.priority);
-  if (params?.warehouseId) query.set('warehouseId', params.warehouseId);
-  const qs = query.toString();
-  return api.get<Order[]>(`/orders${qs ? '?' + qs : ''}`);
-};
+export async function getOrders(params?: Record<string, string>): Promise<Order[]> {
+  const query = params ? '?' + new URLSearchParams(params).toString() : '';
+  return api.get<Order[]>(`/orders${query}`);
+}
 
-export const createOrder = (data: Partial<Order>) =>
-  api.post<Order>('/orders', data);
+export async function getOrderById(id: string): Promise<Order> {
+  return api.get<Order>(`/orders/${id}`);
+}
 
-export const cancelOrder = (id: string) =>
-  api.patch<Order>(`/orders/${id}/cancel`);
+export async function createOrder(data: Partial<Order>): Promise<Order> {
+  return api.post<Order>('/orders', data);
+}
 
-export const deleteOrder = (id: string) =>
-  api.delete<void>(`/orders/${id}`);
+export async function createBatchOrders(orders: Partial<Order>[]): Promise<{ count: number; orders: Order[] }> {
+  return api.post<{ count: number; orders: Order[] }>('/orders/batch', orders);
+}
+
+export async function clearPendingOrders(): Promise<{ message: string; count: number }> {
+  return api.delete<{ message: string; count: number }>('/orders/clear/pending');
+}
+
+export async function updateOrder(id: string, data: Partial<Order>): Promise<Order> {
+  return api.patch<Order>(`/orders/${id}`, data);
+}
+
+export async function cancelOrder(id: string): Promise<Order> {
+  return api.patch<Order>(`/orders/${id}/cancel`);
+}
+
+export async function deleteOrder(id: string): Promise<void> {
+  return api.delete<void>(`/orders/${id}`);
+}
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
-export const getRoutes = () =>
-  api.get<Route[]>('/routes');
+export async function getRoutes(): Promise<Route[]> {
+  return api.get<Route[]>('/routes');
+}
 
-export const getRouteById = (id: string) =>
-  api.get<Route>(`/routes/${id}`);
+export async function getRouteById(id: string): Promise<Route> {
+  return api.get<Route>(`/routes/${id}`);
+}
 
-export const optimizeRoutes = (data: {
+export interface OptimizeRoutesPayload {
   warehouseId: string;
   vehicleIds: string[];
   driverIds: string[];
-}) => api.post<OptimizeResult>('/routes/optimize', data);
+}
 
-export const startRoute = (id: string) =>
-  api.patch<Route>(`/routes/${id}/start`);
+export interface OptimizeRoutesResponse {
+  routesCreated: number;
+  routes: Route[];
+  unassignedOrderCount: number;
+  warning: string | null;
+}
 
-export const completeRoute = (id: string) =>
-  api.patch<Route>(`/routes/${id}/complete`);
+export async function optimizeRoutes(
+  payload: OptimizeRoutesPayload
+): Promise<OptimizeRoutesResponse> {
+  return api.post<OptimizeRoutesResponse>('/routes/optimize', payload);
+}
 
-export const cancelRoute = (id: string) =>
-  api.patch<Route>(`/routes/${id}/cancel`);
+export async function compareRoutes(
+  payload: OptimizeRoutesPayload
+): Promise<OptimizationComparison> {
+  return api.post<OptimizationComparison>('/routes/compare', payload);
+}
 
-export const updateRouteStopStatus = (
+export async function startRoute(id: string): Promise<Route> {
+  return api.patch<Route>(`/routes/${id}/start`);
+}
+
+export async function completeRoute(id: string): Promise<Route> {
+  return api.patch<Route>(`/routes/${id}/complete`);
+}
+
+export async function updateStopStatus(
   routeId: string,
   stopId: string,
-  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'SKIPPED'
-) => api.patch<RouteStop>(`/routes/${routeId}/stops/${stopId}`, { status });
+  data: { status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'SKIPPED'; actualArrival?: string }
+): Promise<RouteStop> {
+  return api.patch<RouteStop>(`/routes/${routeId}/stops/${stopId}`, data);
+}
+
+export async function cancelRoute(id: string): Promise<Route> {
+  return api.patch<Route>(`/routes/${id}/cancel`);
+}
+
+// ── Analytics ──────────────────────────────────────────────────────────────────
+export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
+  return api.get<AnalyticsSummary>('/analytics/summary');
+}
+

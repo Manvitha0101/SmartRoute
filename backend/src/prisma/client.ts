@@ -13,6 +13,14 @@
  * handles both environments correctly.
  */
 
+import path from "path";
+if (!process.env.PRISMA_QUERY_ENGINE_LIBRARY) {
+  process.env.PRISMA_QUERY_ENGINE_LIBRARY = path.resolve(
+    __dirname,
+    "../../node_modules/@prisma/engines/query_engine-windows.dll.node"
+  );
+}
+
 import { PrismaClient } from "@prisma/client";
 
 // The cast through unknown is necessary because TypeScript doesn't know

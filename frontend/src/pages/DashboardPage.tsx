@@ -15,7 +15,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const { user } = useAuth();
 
   if (user?.role === 'ADMIN') {
-    return <AdminDashboard onNavigate={onNavigate} />;
+    return <AdminDashboard />;
   }
 
   // Default to dispatcher view (DISPATCHER role or unknown)

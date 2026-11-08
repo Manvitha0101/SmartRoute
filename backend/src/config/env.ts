@@ -10,6 +10,12 @@
  * to validate.
  */
 
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+dotenv.config();
+
 function requireEnv(key: string): string {
   const value = process.env[key];
   if (!value) {

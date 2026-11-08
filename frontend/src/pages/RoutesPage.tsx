@@ -55,15 +55,11 @@ export default function RoutesPage() {
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 className="page-title">Routes & Trips</h2>
-            <p className="page-subtitle">{routes.length} route{routes.length !== 1 ? 's' : ''} total</p>
+            <h2 className="page-title">Routes</h2>
+            <p className="page-subtitle">{routes.length} route{routes.length !== 1 ? 's' : ''}</p>
           </div>
-          <button className="btn btn-primary" onClick={() => setShowOptimize(true)}>Process & Optimize Orders</button>
+          <button className="btn btn-primary" onClick={() => setShowOptimize(true)}>Plan routes</button>
         </div>
-      </div>
-
-      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: '0.84rem', color: '#166534' }}>
-        <strong>Dispatcher workflow:</strong> Pool pending warehouse orders, pick vehicles/drivers, run nearest-neighbor optimization. Open a route to see the map and stop sequence.
       </div>
 
       {actionError && (
@@ -75,7 +71,7 @@ export default function RoutesPage() {
       {routes.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">🗺️</div>
-          <p>No active routes yet. Click &quot;Process &amp; Optimize Orders&quot; to assign incoming orders to drivers.</p>
+          <p>No routes yet. Use Plan routes to assign waiting orders.</p>
         </div>
       ) : (
         <div className="table-wrap">
@@ -162,9 +158,9 @@ function OptimizeModal({ warehouses, vehicles, drivers, onClose, onDone }: {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()}>
-        <h3 className="modal-title">Process & Optimize Incoming Orders</h3>
+        <h3 className="modal-title">Plan routes</h3>
         <p style={{ fontSize: '0.875rem', color: 'var(--text-3)', marginBottom: 20 }}>
-          Select warehouse, vehicles, and drivers. The engine runs a capacity-aware nearest-neighbor heuristic and reports savings vs a random baseline.
+          Pick one vehicle and one driver. Pending orders are grouped into a route.
         </p>
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
@@ -206,7 +202,7 @@ function OptimizeModal({ warehouses, vehicles, drivers, onClose, onDone }: {
                     <input type="checkbox" checked={selectedDrivers.includes(d.id)} onChange={() => toggleDriver(d.id)} />
                     <div>
                       <div style={{ fontWeight: 500 }}>{d.name}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{d.phone} • {d.licenseNumber}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{d.phone}</div>
                     </div>
                   </label>
                 ))}
@@ -242,7 +238,7 @@ function StopsModal({ route, onClose }: { route: Route; onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-        <h3 className="modal-title">Route Map & Deliveries</h3>
+        <h3 className="modal-title">Stops</h3>
         <div style={{ display: 'flex', gap: 12, marginBottom: 16, fontSize: '0.85rem', color: 'var(--text-3)', flexWrap: 'wrap' }}>
           <span>{route.warehouse?.name || 'Warehouse Hub'}</span>
           <span>{route.totalDistanceKm} km</span>
