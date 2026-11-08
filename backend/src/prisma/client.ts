@@ -14,11 +14,16 @@
  */
 
 import path from "path";
-if (!process.env.PRISMA_QUERY_ENGINE_LIBRARY) {
-  process.env.PRISMA_QUERY_ENGINE_LIBRARY = path.resolve(
+import fs from "fs";
+
+if (process.platform === "win32" && !process.env.PRISMA_QUERY_ENGINE_LIBRARY) {
+  const winDllPath = path.resolve(
     __dirname,
     "../../node_modules/@prisma/engines/query_engine-windows.dll.node"
   );
+  if (fs.existsSync(winDllPath)) {
+    process.env.PRISMA_QUERY_ENGINE_LIBRARY = winDllPath;
+  }
 }
 
 import { PrismaClient } from "@prisma/client";
