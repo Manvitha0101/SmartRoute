@@ -6,6 +6,7 @@ import type {
   Driver,
   Order,
   Route,
+  RouteStop,
   AnalyticsSummary,
   OptimizationComparison,
 } from '../types';
@@ -103,6 +104,7 @@ export interface OptimizeRoutesResponse {
   routes: Route[];
   unassignedOrderCount: number;
   warning: string | null;
+  comparison?: OptimizationComparison;
 }
 
 export async function optimizeRoutes(

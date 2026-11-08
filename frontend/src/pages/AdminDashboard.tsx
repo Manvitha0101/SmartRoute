@@ -96,7 +96,7 @@ export default function AdminDashboard() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Avg distance</div>
-          <div className="stat-value" style={{ color: 'var(--blue)' }}>{routes.avgDistanceKm > 0 ? `${routes.avgDistanceKm}` : '0'}</div>
+          <div className="stat-value" style={{ color: 'var(--blue)' }}>{(routes.avgDistanceKm ?? 0) > 0 ? `${routes.avgDistanceKm}` : '0'}</div>
           <div className="stat-sub">km</div>
         </div>
       </div>
@@ -113,7 +113,7 @@ export default function AdminDashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
                 { label: 'Planned', value: routes.planned, color: 'var(--amber)', pct: routes.total ? Math.round((routes.planned / routes.total) * 100) : 0 },
-                { label: 'On the road', value: routes.inProgress, color: 'var(--blue)', pct: routes.total ? Math.round((routes.inProgress / routes.total) * 100) : 0 },
+                { label: 'On the road', value: routes.inProgress ?? 0, color: 'var(--blue)', pct: routes.total ? Math.round(((routes.inProgress ?? 0) / routes.total) * 100) : 0 },
                 { label: 'Completed', value: routes.completed, color: 'var(--green-700)', pct: routes.total ? Math.round((routes.completed / routes.total) * 100) : 0 },
                 { label: 'Cancelled', value: routes.cancelled, color: 'var(--text-3)', pct: routes.total ? Math.round((routes.cancelled / routes.total) * 100) : 0 },
               ].map(r => (

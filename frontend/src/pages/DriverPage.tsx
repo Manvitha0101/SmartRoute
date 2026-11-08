@@ -12,7 +12,7 @@ function fmtDuration(min: number | null) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function fmtTime(iso: string | null) {
+function fmtTime(iso?: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }

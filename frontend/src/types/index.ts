@@ -18,9 +18,9 @@ export interface Warehouse {
 export interface Vehicle {
   id: string;
   plateNumber: string;
-  type: 'VAN' | 'TRUCK' | 'BIKE';
+  type: 'VAN' | 'TRUCK' | 'BIKE' | 'CAR' | 'MOTORCYCLE';
   capacityKg: number;
-  fuelType: 'DIESEL' | 'PETROL' | 'ELECTRIC';
+  fuelType: 'DIESEL' | 'PETROL' | 'ELECTRIC' | 'CNG';
   createdAt?: string;
   updatedAt?: string;
 }
@@ -40,20 +40,26 @@ export interface Driver {
 
 export type OrderPriority = 'LOW' | 'MEDIUM' | 'HIGH';
 export type OrderStatus = 'PENDING' | 'ASSIGNED' | 'DELIVERED' | 'FAILED' | 'CANCELLED';
+export type TimeWindowStatus = 'NONE' | 'AT_RISK' | 'VIOLATED';
 
 export interface Order {
   id: string;
   customerName: string;
-  deliveryAddress: string;
+  address: string;
+  deliveryAddress?: string;
   latitude: number;
   longitude: number;
-  packageWeightKg: number;
+  weightKg: number;
+  packageWeightKg?: number;
   priority: OrderPriority;
   status: OrderStatus;
   warehouseId: string;
+  latestDelivery?: string | null;
+  earliestDelivery?: string | null;
   deliveryDeadline?: string | null;
   timeWindowStart?: string | null;
   timeWindowEnd?: string | null;
+  timeWindowStatus?: TimeWindowStatus | string;
   createdAt?: string;
   updatedAt?: string;
   warehouse?: Warehouse;
@@ -68,6 +74,7 @@ export interface RouteStop {
   orderId: string;
   stopSequence: number;
   status: RouteStopStatus;
+  projectedArrival?: string | null;
   estimatedArrival?: string | null;
   actualArrival?: string | null;
   order?: Order;
@@ -81,6 +88,8 @@ export interface Route {
   status: RouteStatus;
   totalDistanceKm: number | null;
   estimatedDurationMin: number | null;
+  plannedDepartureAt?: string | null;
+  actualDepartureAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   stops?: RouteStop[];
@@ -99,6 +108,7 @@ export interface AnalyticsSummary {
     assigned: number;
     delivered: number;
     failed: number;
+    cancelled?: number;
   };
   routes: {
     total: number;
@@ -106,16 +116,23 @@ export interface AnalyticsSummary {
     active: number;
     completed: number;
     cancelled: number;
+    inProgress?: number;
+    avgDistanceKm?: number;
   };
   deliverySuccessRate: number;
   busyWarehouses: {
     id: string;
+    warehouseId?: string;
     name: string;
     orderCount: number;
   }[];
 }
 
 export interface OptimizationComparison {
+  savingsPercent?: number;
+  greedyDistanceKm?: number;
+  randomDistanceKm?: number;
+  trials?: number;
   baselineCost?: number;
   optimizedCost?: number;
   improvementPercent?: number;
@@ -124,4 +141,3 @@ export interface OptimizationComparison {
   initialDurationMin?: number;
   optimizedDurationMin?: number;
 }
-
