@@ -108,7 +108,3 @@ SmartRoute/
 ```
 
 ---
-
-## Resume one-liner
-
-> Full-stack fleet dispatch system with capacity-aware nearest-neighbor VRP, JWT role RBAC (Admin / Dispatcher / Driver), Leaflet route maps, and measured distance savings vs random assignment (React, Node, Prisma, Postgres).
