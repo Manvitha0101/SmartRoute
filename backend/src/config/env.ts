@@ -34,5 +34,7 @@ export const env = {
   PORT: parseInt(process.env.PORT ?? "3000", 10),
   NODE_ENV: process.env.NODE_ENV ?? "development",
   ETA_SERVICE_URL: process.env.ETA_SERVICE_URL ?? "http://localhost:8000",
+  OSRM_URL: process.env.OSRM_URL ?? "http://localhost:5000",
+  OSRM_FALLBACK_ALLOWED: process.env.OSRM_FALLBACK_ALLOWED !== "false",
   isProduction: process.env.NODE_ENV === "production",
 };

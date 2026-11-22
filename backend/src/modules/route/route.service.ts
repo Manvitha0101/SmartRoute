@@ -125,7 +125,7 @@ export const optimize = async (data: OptimizeRouteInput) => {
     capacityKg: v.capacityKg,
   }));
 
-  const result = optimizeRoutes(
+  const result = await optimizeRoutes(
     pendingOrders as any,
     vehiclesForOptimizer,
     { latitude: warehouse.latitude, longitude: warehouse.longitude }
@@ -143,16 +143,24 @@ export const optimize = async (data: OptimizeRouteInput) => {
     data.warehouseId
   );
 
+  const warnings: string[] = [];
+  if (result.unassignedOrderIds.length > 0) {
+    warnings.push(
+      `${result.unassignedOrderIds.length} order(s) could not be assigned — vehicles may be at full capacity.`
+    );
+  }
+  if (result.warning) {
+    warnings.push(result.warning);
+  }
+
   return {
     routesCreated: createdRoutes.length,
     routes: createdRoutes,
     unassignedOrderCount: result.unassignedOrderIds.length,
     unassignedOrderIds: result.unassignedOrderIds,
     comparison: result.comparison,
-    warning:
-      result.unassignedOrderIds.length > 0
-        ? `${result.unassignedOrderIds.length} order(s) could not be assigned — vehicles may be at full capacity. Add more vehicles or increase capacity.`
-        : null,
+    routingProvider: result.routingProvider,
+    warning: warnings.length > 0 ? warnings.join(" ") : null,
   };
 };
 

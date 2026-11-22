@@ -30,18 +30,22 @@ const vehicles: VehicleForOptimizer[] = [
   { id: "v2", driverId: "d2", capacityKg: 950 },
 ];
 
-const result = optimizeRoutes(orders, vehicles, warehouse, { randomTrials: 50 });
-const { comparison } = result;
+async function run() {
+  const result = await optimizeRoutes(orders, vehicles, warehouse, { randomTrials: 50 });
+  const { comparison } = result;
 
-console.log("SmartRoute optimizer benchmark (Hyderabad-like sample)");
-console.log("─────────────────────────────────────────────────────");
-console.log(`Orders: ${orders.length}  |  Vehicles: ${vehicles.length}`);
-console.log(`Greedy (nearest-neighbor): ${comparison.greedyDistanceKm} km`);
-console.log(`Random baseline (avg of ${comparison.trials} trials): ${comparison.randomDistanceKm} km`);
-console.log(`Distance savings vs random: ${comparison.savingsPercent}%`);
-console.log(`Routes created: ${result.routes.length}`);
-console.log(`Unassigned: ${result.unassignedOrderIds.length}`);
-console.log("");
-console.log(
-  `Resume line: "Nearest-neighbor VRP cut ~${Math.round(comparison.savingsPercent)}% travel distance vs random assignment on seeded Hyderabad orders."`
-);
+  console.log("SmartRoute optimizer benchmark (Hyderabad-like sample)");
+  console.log("─────────────────────────────────────────────────────");
+  console.log(`Orders: ${orders.length}  |  Vehicles: ${vehicles.length}`);
+  console.log(`Greedy (nearest-neighbor): ${comparison.greedyDistanceKm} km`);
+  console.log(`Random baseline (avg of ${comparison.trials} trials): ${comparison.randomDistanceKm} km`);
+  console.log(`Distance savings vs random: ${comparison.savingsPercent}%`);
+  console.log(`Routes created: ${result.routes.length}`);
+  console.log(`Unassigned: ${result.unassignedOrderIds.length}`);
+  console.log("");
+  console.log(
+    `Resume line: "Nearest-neighbor VRP cut ~${Math.round(comparison.savingsPercent)}% travel distance vs random assignment on seeded Hyderabad orders."`
+  );
+}
+
+run().catch(console.error);

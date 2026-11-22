@@ -63,7 +63,7 @@ export const createRoutesWithStops = async (
           warehouseId,
           status: "PLANNED",
           totalDistanceKm: optimized.totalDistanceKm,
-          estimatedDurationMin: Math.round((optimized.totalDistanceKm / 30) * 60),
+          estimatedDurationMin: optimized.estimatedDurationMin ?? Math.round((optimized.totalDistanceKm / 30) * 60),
         },
         select: {
           id: true,

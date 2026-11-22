@@ -3,17 +3,33 @@ services:
     image: postgis/postgis:16-3.4
     container_name: smartroute-postgres
     restart: unless-stopped
-
     environment:
       POSTGRES_USER: smartroute
       POSTGRES_PASSWORD: smartroute123
       POSTGRES_DB: smartroute
-
     ports:
       - "5433:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  # ─── OSRM Road Network Routing Engine ─────────────────────────────────────
+  # To prepare the regional dataset (e.g. Hyderabad / Telangana OSM PBF):
+  # 1. Download regional extract:
+  #    curl -O https://download.geofabrik.de/asia/india/southern-zone-latest.osm.pbf
+  # 2. Extract, partition, and customize with the car routing profile:
+  #    docker run -t -v "${PWD}/osrm-data:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-extract -p /opt/car.lua /data/regional.osm.pbf
+  #    docker run -t -v "${PWD}/osrm-data:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-partition /data/regional.osrm
+  #    docker run -t -v "${PWD}/osrm-data:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-customize /data/regional.osrm
+  # 3. Start the container: docker compose up -d osrm
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    container_name: smartroute-osrm
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    command: osrm-routed --algorithm mld /data/regional.osrm
+    volumes:
+      - ./osrm-data:/data
 
 volumes:
   postgres_data:

@@ -1,56 +1,30 @@
 /**
- * route.optimizer.ts — The nearest-neighbor route optimization algorithm.
+ * route.optimizer.ts — Multi-vehicle route optimization heuristic using OSRM road networks.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * THE PROBLEM: Vehicle Routing Problem (VRP)
+ * THE PROBLEM: Capacitated Vehicle Routing Problem (CVRP)
  * ─────────────────────────────────────────────────────────────────────────────
  * Given:
- *   - A set of delivery orders (each with GPS coordinates and weight)
- *   - A fleet of vehicles (each with a weight capacity)
- *   - A single warehouse (the departure point for all vehicles)
+ *   - A set of delivery orders (each with GPS coordinates, SLA deadlines, and weight)
+ *   - A fleet of vehicles (each with a maximum weight payload capacity)
+ *   - A warehouse depot (the common departure origin)
  *
- * Find: An assignment of orders to vehicles, and a delivery sequence for each
- * vehicle, that minimizes total travel distance while respecting capacity.
+ * Find: An assignment of orders to vehicles and a delivery sequence per vehicle
+ * that minimizes total road distance and travel time while strictly respecting capacity.
  *
- * This is NP-Hard — no polynomial-time exact algorithm exists.
- * We use the Nearest Neighbor Heuristic (a greedy approximation):
- *   - Fast: O(N² × K) where N = orders, K = vehicles
- *   - Good enough: typically within 20-25% of optimal for small N
- *   - Explainable: interviewers can follow the logic step by step
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * HAVERSINE FORMULA — Why we don't just use (x2-x1)² + (y2-y1)²
- * ─────────────────────────────────────────────────────────────────────────────
- * The Earth is a sphere, not a flat plane.
- * Euclidean distance works fine for small areas (< 5 km), but for city-scale
- * routing (10-50 km), the curvature of the Earth matters.
- *
- * Haversine gives the "great-circle distance" — the shortest path along the
- * Earth's surface between two GPS coordinates.
- *
- * Formula:
- *   a = sin²(Δlat/2) + cos(lat1) × cos(lat2) × sin²(Δlon/2)
- *   c = 2 × atan2(√a, √(1−a))
- *   d = R × c   where R = 6371 km (Earth's radius)
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * ALGORITHM WALKTHROUGH (for interviews)
- * ─────────────────────────────────────────────────────────────────────────────
- * Input: 10 orders, 2 vehicles (V1: 500kg, V2: 300kg)
- *
- * Step 1: Sort orders HIGH priority first
- * Step 2: V1 starts at warehouse
- *   - Find nearest unassigned order that fits in 500kg remaining
- *   - Assign it → remaining = 500 - order.weight
- *   - Move "current position" to that order's location
- *   - Repeat until capacity full or no order fits
- * Step 3: V2 starts at warehouse
- *   - Same process for remaining unassigned orders
- * Step 4: Unassigned orders left over = couldn't fit in any vehicle
- *   (returned as a warning — dispatcher must handle manually)
+ * This problem is NP-Hard. We use a Priority-Weighted Greedy Nearest Neighbor
+ * heuristic powered by an OSRM (Open Source Routing Machine) road-network distance
+ * and duration matrix.
  */
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+import {
+  getDistanceMatrix,
+  haversineDistanceKm,
+  type Coordinate,
+  type DistanceDurationMatrix,
+} from "./osrm.service";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 export type OrderForOptimizer = {
   id: string;
@@ -73,16 +47,16 @@ export type Warehouse = {
   longitude: number;
 };
 
-// The output for one vehicle's route
 export type OptimizedRoute = {
   vehicleId: string;
   driverId: string;
   stops: {
     orderId: string;
-    sequence: number; // 1-based: stop 1, stop 2, stop 3...
+    sequence: number; // 1-based stop sequence: 1, 2, 3...
     projectedArrival: Date | null;
   }[];
   totalDistanceKm: number;
+  estimatedDurationMin: number;
 };
 
 export type OptimizationComparison = {
@@ -90,77 +64,33 @@ export type OptimizationComparison = {
   randomDistanceKm: number;
   savingsPercent: number;
   trials: number;
+  routingProvider: "osrm" | "fallback_haversine";
 };
 
 export type OptimizationResult = {
   routes: OptimizedRoute[];
-  unassignedOrderIds: string[]; // Orders that couldn't fit in any vehicle
+  unassignedOrderIds: string[];
   comparison: OptimizationComparison;
+  routingProvider: "osrm" | "fallback_haversine";
+  warning: string | null;
 };
 
-// ─── Haversine Distance ────────────────────────────────────────────────────────
+// ─── Priority Scoring ────────────────────────────────────────────────────────
 
-/**
- * Calculate the straight-line distance (km) between two GPS coordinates.
- *
- * WHY THIS IS "AS THE CROW FLIES" NOT ROAD DISTANCE:
- * Actual road distance requires a Maps API (Google Maps, OSRM).
- * We use Haversine as an approximation. Road distance is typically
- * 1.2-1.4x the Haversine distance (the "circuity factor").
- *
- * In production, we'd call an OSRM (Open Source Routing Machine) API
- * to get actual road distances. For this project, Haversine gives
- * accurate enough relative comparisons for the optimizer.
- */
-export const haversineDistanceKm = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number => {
-  const R = 6371; // Earth's radius in km
-
-  // Convert degrees to radians — Math.sin/cos work in radians
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Distance in km
-};
-
-// ─── Priority Scoring ──────────────────────────────────────────────────────────
-
-/**
- * Convert priority enum to a numeric score for sorting.
- * Higher score = higher priority = assigned first.
- *
- * WHY SORT BY PRIORITY FIRST:
- * If a HIGH priority order and a LOW priority order are equidistant from
- * the vehicle's current position, we prefer the HIGH priority one.
- * This ensures SLA-sensitive deliveries are scheduled earliest in the route.
- */
 const priorityScore = (priority: string): number => {
   switch (priority) {
-    case "HIGH":   return 3;
-    case "MEDIUM": return 2;
-    case "LOW":    return 1;
-    default:       return 0;
+    case "HIGH":
+      return 3;
+    case "MEDIUM":
+      return 2;
+    case "LOW":
+      return 1;
+    default:
+      return 0;
   }
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-const AVERAGE_SPEED_KMH = 30;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const sortOrdersForGreedy = (orders: OrderForOptimizer[]): OrderForOptimizer[] =>
   [...orders].sort((a, b) => {
@@ -174,62 +104,11 @@ const sortOrdersForGreedy = (orders: OrderForOptimizer[]): OrderForOptimizer[] =
     return 0;
   });
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
 const totalDistanceKm = (routes: OptimizedRoute[]) =>
   round2(routes.reduce((sum, r) => sum + r.totalDistanceKm, 0));
 
-/**
- * Build routes by walking an explicit order sequence per vehicle (no re-picking).
- * Used for the random baseline: assign orders randomly, then measure path length.
- */
-const buildRoutesFromAssignment = (
-  assignments: { vehicle: VehicleForOptimizer; orders: OrderForOptimizer[] }[],
-  warehouse: Warehouse
-): OptimizedRoute[] => {
-  const routes: OptimizedRoute[] = [];
+// ─── Random Baseline using Road Matrix ───────────────────────────────────────
 
-  for (const { vehicle, orders } of assignments) {
-    if (orders.length === 0) continue;
-
-    let currentLat = warehouse.latitude;
-    let currentLon = warehouse.longitude;
-    let totalDistance = 0;
-    let currentTime = new Date();
-    const stops: OptimizedRoute["stops"] = [];
-    let sequence = 1;
-
-    for (const order of orders) {
-      const dist = haversineDistanceKm(
-        currentLat,
-        currentLon,
-        order.latitude,
-        order.longitude
-      );
-      totalDistance += dist;
-      const travelTimeMs = (dist / AVERAGE_SPEED_KMH) * 60 * 60 * 1000;
-      currentTime = new Date(currentTime.getTime() + travelTimeMs);
-      stops.push({
-        orderId: order.id,
-        sequence: sequence++,
-        projectedArrival: new Date(currentTime),
-      });
-      currentLat = order.latitude;
-      currentLon = order.longitude;
-    }
-
-    routes.push({
-      vehicleId: vehicle.id,
-      driverId: vehicle.driverId,
-      stops,
-      totalDistanceKm: round2(totalDistance),
-    });
-  }
-
-  return routes;
-};
-
-/** Fisher–Yates shuffle (pure; seed via Math.random for demo benchmarks). */
 const shuffle = <T>(items: T[]): T[] => {
   const arr = [...items];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -240,14 +119,14 @@ const shuffle = <T>(items: T[]): T[] => {
 };
 
 /**
- * Random baseline: shuffle orders, first-fit into vehicles by capacity,
- * visit each vehicle's bag in assignment order. Average over `trials`.
+ * Measure random first-fit route baseline using the exact same road distance matrix.
  */
-export const averageRandomDistanceKm = (
+const evaluateRandomBaselineKm = (
   orders: OrderForOptimizer[],
   vehicles: VehicleForOptimizer[],
-  warehouse: Warehouse,
-  trials = 25
+  orderIndexMap: Map<string, number>,
+  matrix: DistanceDurationMatrix,
+  trials: number
 ): number => {
   if (orders.length === 0 || vehicles.length === 0) return 0;
 
@@ -267,73 +146,115 @@ export const averageRandomDistanceKm = (
       bag.remaining -= order.weightKg;
     }
 
-    const routes = buildRoutesFromAssignment(
-      bags.map((b) => ({ vehicle: b.vehicle, orders: b.orders })),
-      warehouse
-    );
-    sum += totalDistanceKm(routes);
+    let trialTotalKm = 0;
+    for (const bag of bags) {
+      if (bag.orders.length === 0) continue;
+      let currentIndex = 0; // warehouse depot is index 0
+      for (const order of bag.orders) {
+        const nextIndex = orderIndexMap.get(order.id) ?? 0;
+        const dist = matrix.distancesKm[currentIndex]?.[nextIndex] ?? 0;
+        trialTotalKm += isFinite(dist) ? dist : 0;
+        currentIndex = nextIndex;
+      }
+    }
+    sum += trialTotalKm;
   }
 
   return round2(sum / trials);
 };
 
-// ─── Main Algorithm ────────────────────────────────────────────────────────────
+// ─── Main Optimization Algorithm ─────────────────────────────────────────────
 
 /**
- * Nearest Neighbor Heuristic for Vehicle Routing.
+ * Priority-driven Greedy Nearest Neighbor heuristic using road distance and travel durations.
  *
- * Time complexity: O(N² × K)
- *   N = number of orders
- *   K = number of vehicles
- *   For N=50, K=5: 50² × 5 = 12,500 operations — runs in < 1ms
+ * Complexity:
+ * - OSRM matrix query: O(1) batch network call for (N+1) x (N+1) table
+ * - Optimization search: O(N² × K) where N = orders, K = vehicles
  */
-export const optimizeRoutes = (
+export const optimizeRoutes = async (
   orders: OrderForOptimizer[],
   vehicles: VehicleForOptimizer[],
   warehouse: Warehouse,
-  options?: { randomTrials?: number }
-): OptimizationResult => {
+  options?: { randomTrials?: number; allowFallback?: boolean }
+): Promise<OptimizationResult> => {
+  if (orders.length === 0 || vehicles.length === 0) {
+    return {
+      routes: [],
+      unassignedOrderIds: orders.map((o) => o.id),
+      comparison: {
+        greedyDistanceKm: 0,
+        randomDistanceKm: 0,
+        savingsPercent: 0,
+        trials: 0,
+        routingProvider: "osrm",
+      },
+      routingProvider: "osrm",
+      warning: null,
+    };
+  }
+
   const sortedOrders = sortOrdersForGreedy(orders);
+
+  // Index 0: Warehouse. Index 1..N: Sorted orders
+  const locations: Coordinate[] = [
+    { latitude: warehouse.latitude, longitude: warehouse.longitude },
+    ...sortedOrders.map((o) => ({ latitude: o.latitude, longitude: o.longitude })),
+  ];
+
+  const orderIndexMap = new Map<string, number>();
+  sortedOrders.forEach((o, idx) => orderIndexMap.set(o.id, idx + 1));
+
+  // Request road network distance and duration matrix via OSRM service
+  const matrix = await getDistanceMatrix(locations, {
+    allowFallback: options?.allowFallback,
+  });
+
   const unassigned = new Set(sortedOrders.map((o) => o.id));
   const routes: OptimizedRoute[] = [];
 
   for (const vehicle of vehicles) {
     let remainingCapacity = vehicle.capacityKg;
-    let currentLat = warehouse.latitude;
-    let currentLon = warehouse.longitude;
+    let currentIndex = 0; // Starts at warehouse depot (index 0)
     const stops: OptimizedRoute["stops"] = [];
     let totalDistance = 0;
+    let totalDurationMin = 0;
     let sequence = 1;
     let currentTime = new Date();
 
     while (true) {
       let bestOrder: OrderForOptimizer | null = null;
+      let bestIndex = -1;
       let bestDistance = Infinity;
 
       for (const order of sortedOrders) {
         if (!unassigned.has(order.id)) continue;
         if (order.weightKg > remainingCapacity) continue;
 
-        const dist = haversineDistanceKm(
-          currentLat,
-          currentLon,
-          order.latitude,
-          order.longitude
-        );
+        const candidateIndex = orderIndexMap.get(order.id)!;
+        const roadDistance = matrix.distancesKm[currentIndex]?.[candidateIndex];
 
-        if (dist < bestDistance) {
-          bestDistance = dist;
+        // Skip unreachable roads or disconnected points
+        if (roadDistance === undefined || !isFinite(roadDistance)) continue;
+
+        if (roadDistance < bestDistance) {
+          bestDistance = roadDistance;
           bestOrder = order;
+          bestIndex = candidateIndex;
         }
       }
 
-      if (!bestOrder) break;
+      if (!bestOrder || bestIndex === -1) break;
 
       unassigned.delete(bestOrder.id);
       totalDistance += bestDistance;
 
-      const travelTimeMs = (bestDistance / AVERAGE_SPEED_KMH) * 60 * 60 * 1000;
-      currentTime = new Date(currentTime.getTime() + travelTimeMs);
+      // Extract accurate road travel duration from OSRM matrix
+      const roadDurationMin = matrix.durationsMin[currentIndex]?.[bestIndex] ?? 0;
+      const validDurationMin = isFinite(roadDurationMin) ? roadDurationMin : (bestDistance / 30) * 60;
+      totalDurationMin += validDurationMin;
+
+      currentTime = new Date(currentTime.getTime() + validDurationMin * 60 * 1000);
 
       stops.push({
         orderId: bestOrder.id,
@@ -342,8 +263,7 @@ export const optimizeRoutes = (
       });
 
       remainingCapacity -= bestOrder.weightKg;
-      currentLat = bestOrder.latitude;
-      currentLon = bestOrder.longitude;
+      currentIndex = bestIndex;
     }
 
     if (stops.length > 0) {
@@ -352,16 +272,18 @@ export const optimizeRoutes = (
         driverId: vehicle.driverId,
         stops,
         totalDistanceKm: round2(totalDistance),
+        estimatedDurationMin: Math.round(totalDurationMin),
       });
     }
   }
 
   const trials = options?.randomTrials ?? 25;
   const greedyDistanceKm = totalDistanceKm(routes);
-  const randomDistanceKm = averageRandomDistanceKm(
+  const randomDistanceKm = evaluateRandomBaselineKm(
     orders,
     vehicles,
-    warehouse,
+    orderIndexMap,
+    matrix,
     trials
   );
   const savingsPercent =
@@ -377,6 +299,11 @@ export const optimizeRoutes = (
       randomDistanceKm,
       savingsPercent,
       trials,
+      routingProvider: matrix.provider,
     },
+    routingProvider: matrix.provider,
+    warning: matrix.warning,
   };
 };
+
+export { haversineDistanceKm };
